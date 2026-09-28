@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=118';
-import { P2PNet } from './net.js?v=118';
-import { WEAPONS } from './config.js?v=118';
-import { sfx } from './audio.js?v=118';
-import { auth } from './auth.js?v=118';
-window.__ZC_BUILD = 'v118';
+import { Game } from './game.js?v=119';
+import { P2PNet } from './net.js?v=119';
+import { WEAPONS } from './config.js?v=119';
+import { sfx } from './audio.js?v=119';
+import { auth } from './auth.js?v=119';
+window.__ZC_BUILD = 'v119';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -191,10 +191,9 @@ $('botsBtn').onclick = () => {
 $('againBtn').onclick = () => { showMenu(); $('botsBtn').click(); };
 $('menuBtn').onclick = showMenu;
 
-// --- ONLINE: automatic public lobbies, no rooms/codes ---
+// --- ONLINE: automatic public lobbies, no rooms/codes. Humans only, NO bots.
 // First arrival hosts (authoritative sim), rest join as guests.
-// Match starts 30s after 2+ humans are present. Bots fill to ~60.
-const ONLINE_BOTS = 60;
+// Match starts 30s after 2+ humans are present (waits as long as needed).
 const ONLINE_START_WAIT = 30;
 let onlineTimer = null;
 let onlineCancelled = false;
@@ -258,22 +257,11 @@ function hostOnlineLobby(name, lobby) {
   net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
   wireHostSim(); // listen early so first inputs aren't missed
   let countdown = -1;
-  let aloneT = 0;
   onlineStatus(`Hosting lobby ${lobby} — waiting for players… (1 here)`);
   onlineTimer = setInterval(() => {
     if (onlineCancelled) { clearInterval(onlineTimer); onlineTimer = null; return; }
     const humans = openHumans();
-    if (humans >= 2 && countdown < 0) { countdown = ONLINE_START_WAIT; aloneT = 0; }
-    if (humans < 2 && countdown < 0) {
-      aloneT += 0.5;
-      // nobody else showed: start with bots anyway, late joins still work
-      if (aloneT >= 45) {
-        clearInterval(onlineTimer); onlineTimer = null;
-        game.feed('No players found — starting with bots. Friends can still join mid-match!');
-        startOnlineMatch(name);
-        return;
-      }
-    }
+    if (humans >= 2 && countdown < 0) countdown = ONLINE_START_WAIT;
     if (countdown >= 0) {
       countdown -= 0.5;
       onlineStatus(`Starting in ${Math.max(0, Math.ceil(countdown))}… (${humans} players)`);
@@ -283,7 +271,7 @@ function hostOnlineLobby(name, lobby) {
         return;
       }
     } else {
-      onlineStatus(`Waiting for players… (${humans} here) — starts 30s after 2+ join, or with bots in ${Math.max(0, Math.ceil(45 - aloneT))}s.`);
+      onlineStatus(`Waiting for players… (${humans} here) — match starts 30s after 2+ join.`);
     }
     net.broadcastLobby({ humans, countdown: Math.max(0, Math.ceil(countdown)), started: false });
   }, 500);
@@ -322,8 +310,8 @@ function startOnlineMatch(name) {
   wireHostSim();
   onlineIdle();
   showGameUI();
-  // online is free-for-all: every human + bot on their own team
-  game.start({ name, mode: 'solo', botCount: ONLINE_BOTS, net, isRemote: false, teamId: 't-' + name, seed });
+  // online is humans-only free-for-all: every human on their own team, no bots
+  game.start({ name, mode: 'solo', botCount: 0, net, isRemote: false, teamId: 't-' + name, seed });
   const me = auth.current();
   if (me && game.local) game.local.color = me.color;
 }

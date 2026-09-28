@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=118';
-import { generateWorld } from './world.js?v=118';
-import { makeBotController } from './bots.js?v=118';
-import { sfx } from './audio.js?v=118';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=119';
+import { generateWorld } from './world.js?v=119';
+import { makeBotController } from './bots.js?v=119';
+import { sfx } from './audio.js?v=119';
 
 let PID = 1;
 
@@ -106,10 +106,12 @@ export class Game {
     this.pendingBots = [];
     this.joinAcc = 0;
 
-    // gas init: full map → first target
+    // gas init: full map → first target (small lobbies get a tighter zone
+    // so few humans actually meet on a 9000px map)
+    const zoneScale = botCount === 0 ? 0.38 : 0.72;
     this.gas = {
-      x: WORLD_SIZE / 2, y: WORLD_SIZE / 2, r: WORLD_SIZE * 0.72,
-      tx: WORLD_SIZE / 2, ty: WORLD_SIZE / 2, tr: WORLD_SIZE * 0.45,
+      x: WORLD_SIZE / 2, y: WORLD_SIZE / 2, r: WORLD_SIZE * zoneScale,
+      tx: WORLD_SIZE / 2, ty: WORLD_SIZE / 2, tr: WORLD_SIZE * zoneScale * 0.62,
       fx: WORLD_SIZE / 2, fy: WORLD_SIZE / 2, fr: WORLD_SIZE * 0.72,
       phase: 0, state: 'waiting', t: GAS_PHASES[0].wait, dps: 0,
     };
@@ -524,7 +526,10 @@ export class Game {
     this.phase = 'plane';
     this.peaceT = GRACE_TIME; // grace runs from first jump, not plane end
     const humans = this.players.filter((p) => !p.isBot && !p.dead).length;
-    this.feed(`<b>${this.players.length - humans} bots</b> + <b>${humans} human${humans === 1 ? '' : 's'}</b> — good luck!`);
+    const bots = this.players.length - humans;
+    this.feed(bots > 0
+      ? `<b>${bots} bots</b> + <b>${humans} human${humans === 1 ? '' : 's'}</b> — good luck!`
+      : `<b>${humans} humans — last one standing wins!</b>`);
     this.centerMsg('Jump with SPACE / F!', 3);
   }
 
