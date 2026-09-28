@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, rand, randi, pick, clamp, dist2, angleLerp } from './config.js';
-import { generateWorld } from './world.js';
-import { makeBotController } from './bots.js';
-import { sfx } from './audio.js';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=111';
+import { generateWorld } from './world.js?v=111';
+import { makeBotController } from './bots.js?v=111';
+import { sfx } from './audio.js?v=111';
 
 let PID = 1;
 

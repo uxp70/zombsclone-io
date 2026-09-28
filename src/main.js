@@ -1,8 +1,10 @@
-import { Game } from './game.js';
-import { P2PNet } from './net.js';
-import { WEAPONS } from './config.js';
-import { sfx } from './audio.js';
-import { auth } from './auth.js';
+import { Game } from './game.js?v=111';
+import { P2PNet } from './net.js?v=111';
+import { WEAPONS } from './config.js?v=111';
+import { sfx } from './audio.js?v=111';
+import { auth } from './auth.js?v=111';
+window.__ZC_BUILD = 'v111';
+console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game'), minimap = $('minimap');
@@ -227,7 +229,7 @@ $('joinBtn').onclick = async () => {
     // local pseudo player for camera/identity
     game.local = { name, x: 2100, y: 2100 };
     // build a stub world so map renders before first snapshot
-    const { generateWorld } = await import('./world.js');
+    const { generateWorld } = await import('./world.js?v=111');
     const w = generateWorld(12345);
     game.obstacles = w.obstacles; game.loot = w.loot; game.ponds = w.ponds; game.roads = w.roads;
     game.gas = { x: 2100, y: 2100, r: 2500, tx: 2100, ty: 2100, tr: 1500 };

@@ -1,4 +1,4 @@
-import { BOT_CHATS, WEAPONS, RARITIES, rand, pick, dist2, clamp, angleLerp } from './config.js';
+import { BOT_CHATS, WEAPONS, RARITIES, rand, pick, dist2, clamp, angleLerp } from './config.js?v=111';
 
 // Lightweight FSM bot: loot → fight → rotate to zone → heal. Adds chat + human-like error.
 export function makeBotController(bot, game) {
