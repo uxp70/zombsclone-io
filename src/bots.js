@@ -1,6 +1,6 @@
-import { BOT_CHATS, WEAPONS, RARITIES, rand, pick, dist2, clamp, angleLerp } from './config.js?v=112';
+import { WEAPONS, RARITIES, rand, dist2, clamp, angleLerp } from './config.js?v=113';
 
-// Lightweight FSM bot: loot → fight → rotate to zone → heal. Adds chat + human-like error.
+// Lightweight FSM bot: loot → fight → rotate to zone → heal. Silent (no chat).
 export function makeBotController(bot, game) {
   return {
     bot,
@@ -9,13 +9,12 @@ export function makeBotController(bot, game) {
     lobbyAct(dt) {
       const g = game, p = this.bot;
       this.thinkT -= dt;
-      if (this.thinkT <= 0) {
+        if (this.thinkT <= 0) {
         this.thinkT = rand(0.6, 1.8);
         this.lobbyGoal = {
           x: rand(g.lobby.x + 60, g.lobby.x + g.lobby.w - 60),
           y: rand(g.lobby.y + 60, g.lobby.y + g.lobby.h - 60),
         };
-        if (Math.random() < 0.35 && g.onChat) g.onChat(p, pick(BOT_CHATS));
       }
       const gl = this.lobbyGoal || { x: p.x, y: p.y };
       const a = Math.atan2(gl.y - p.y, gl.x - p.x);
@@ -29,7 +28,6 @@ export function makeBotController(bot, game) {
     wanderA: Math.random() * Math.PI * 2,
     strafeDir: Math.random() < 0.5 ? 1 : -1,
     strafeT: 0,
-    chatT: rand(8, 40),
     panicT: 0,
     update(dt) {
       const g = game;
@@ -37,13 +35,9 @@ export function makeBotController(bot, game) {
       if (p.dead) return;
       if (g.phase === 'lobby') { this.lobbyAct(dt); return; }
       this.thinkT -= dt;
-      this.chatT -= dt;
       this.strafeT -= dt;
       if (this.strafeT <= 0) { this.strafeDir *= -1; this.strafeT = rand(0.5, 1.6); }
-      if (this.chatT <= 0) {
-        this.chatT = rand(20, 70);
-        if (Math.random() < 0.5 && g.onChat) g.onChat(p, pick(BOT_CHATS));
-      }
+      // (bots never chat — silent)
 
       // Perception
       let enemy = nearestEnemy(g, p, 850);

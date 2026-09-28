@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=112';
-import { generateWorld } from './world.js?v=112';
-import { makeBotController } from './bots.js?v=112';
-import { sfx } from './audio.js?v=112';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=113';
+import { generateWorld } from './world.js?v=113';
+import { makeBotController } from './bots.js?v=113';
+import { sfx } from './audio.js?v=113';
 
 let PID = 1;
 
@@ -38,6 +38,9 @@ export class Game {
 
   _bindInput() {
     window.addEventListener('keydown', (e) => {
+      // don't steal keystrokes while typing (chat box, menu inputs)
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
       this.keys[e.key.toLowerCase()] = true;
       if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
       if (!this.local || this.local.dead) return;
@@ -131,7 +134,7 @@ export class Game {
       Object.assign(this.local, penSpawn());
       this.local.faceAngle = rand(0, 6.28);
       this.players.push(this.local);
-      // offline teammates for duo/squad
+      // offline teammates for duo/squad join instantly
       const mateCount = mode === 'duo' ? 1 : mode === 'squad' ? 3 : 0;
       for (let i = 0; i < mateCount; i++) {
         const m = this._mkPlayer(names[ni++] || ('mate' + i), true, 't-local');
@@ -140,13 +143,12 @@ export class Game {
         this.players.push(m);
         this.botControllers.set(m.id, makeBotController(m, this));
       }
+      // bots trickle into the lobby gradually (see updateLobby)
+      this.pendingBots = [];
       for (let i = 0; i < botCount; i++) {
-        const b = this._mkPlayer(names[ni++] || ('bot' + i), true, 't-' + i);
-        Object.assign(b, penSpawn());
-        b.skill = rand(0.25, 0.9);
-        this.players.push(b);
-        this.botControllers.set(b.id, makeBotController(b, this));
+        this.pendingBots.push({ name: names[ni++] || ('bot' + i), skill: rand(0.25, 0.9), team: 't-' + i });
       }
+      this.joinAcc = 0;
       this.centerMsg('Match starting soon — run around!', 3);
     }
 
@@ -432,6 +434,19 @@ export class Game {
     }
   }
 
+  spawnBot(spec) {
+    const b = this._mkPlayer(spec.name, true, spec.team);
+    const lb = this.lobby;
+    b.x = lb.x + rand(60, lb.w - 60);
+    b.y = lb.y + rand(60, lb.h - 60);
+    b.skill = spec.skill;
+    b.faceAngle = rand(0, 6.28);
+    this.players.push(b);
+    this.botControllers.set(b.id, makeBotController(b, this));
+    for (let i = 0; i < 6; i++) this.particles.push({ x: b.x + rand(-12, 12), y: b.y + rand(-12, 12), vx: rand(-50, 50), vy: rand(-50, 50), t: 0.35, max: 0.35, c: '#ffffff', r: 4 });
+    return b;
+  }
+
   startPlane() {
     const a = Math.random() * Math.PI * 2;
     const cx = WORLD_SIZE / 2, cy = WORLD_SIZE / 2, Lg = WORLD_SIZE * 0.85;
@@ -440,6 +455,7 @@ export class Game {
     pl.dx = Math.cos(a); pl.dy = Math.sin(a);
     pl.ex = cx + Math.cos(a) * Lg; pl.ey = cy + Math.sin(a) * Lg;
     pl.speed = 520; pl.t = 0; pl.active = true;
+    while (this.pendingBots && this.pendingBots.length) this.spawnBot(this.pendingBots.shift());
     for (const p of this.players) {
       if (p.dead) continue;
       p.dropping = true; p.chute = 0; p.healing = null; p.reloadT = 0;
@@ -460,6 +476,15 @@ export class Game {
 
   updateLobby(dt) {
     this.lobbyT -= dt;
+    // bots trickle in over the countdown — flush faster near the end
+    if (this.pendingBots && this.pendingBots.length) {
+      this.joinAcc = (this.joinAcc || 0) + dt * Math.max(1.5, this.pendingBots.length / Math.max(0.5, this.lobbyT));
+      let guard = 12;
+      while (this.pendingBots.length && this.joinAcc >= 1 && guard-- > 0) {
+        this.joinAcc -= 1;
+        this.spawnBot(this.pendingBots.shift());
+      }
+    }
     const L = this.local;
     if (L && !L.dead) {
       let mx = 0, my = 0;

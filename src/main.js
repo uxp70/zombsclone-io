@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=112';
-import { P2PNet } from './net.js?v=112';
-import { WEAPONS } from './config.js?v=112';
-import { sfx } from './audio.js?v=112';
-import { auth } from './auth.js?v=112';
-window.__ZC_BUILD = 'v112';
+import { Game } from './game.js?v=113';
+import { P2PNet } from './net.js?v=113';
+import { WEAPONS } from './config.js?v=113';
+import { sfx } from './audio.js?v=113';
+import { auth } from './auth.js?v=113';
+window.__ZC_BUILD = 'v113';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -179,15 +179,41 @@ $('playBtn').onclick = () => {
 $('againBtn').onclick = () => { $('playBtn').click(); };
 $('menuBtn').onclick = showMenu;
 
-// --- P2P rooms ---
+// --- P2P rooms (public by default, optional private password) ---
+let roomPublic = true;
+$('pubBtn').onclick = () => {
+  roomPublic = true; sfx.ui();
+  $('pubBtn').classList.add('active'); $('privBtn').classList.remove('active');
+  $('roomPass').classList.add('hidden');
+};
+$('privBtn').onclick = () => {
+  roomPublic = false; sfx.ui();
+  $('privBtn').classList.add('active'); $('pubBtn').classList.remove('active');
+  $('roomPass').classList.remove('hidden');
+};
+function roomLink(code) {
+  return location.origin + location.pathname + '?room=' + code;
+}
+$('copyBtn').onclick = async () => {
+  const link = $('shareLink').value;
+  try { await navigator.clipboard.writeText(link); $('copyBtn').textContent = 'Copied!'; }
+  catch { $('shareLink').select(); document.execCommand('copy'); $('copyBtn').textContent = 'Copied!'; }
+  setTimeout(() => { $('copyBtn').textContent = 'Copy link'; }, 2000);
+};
 $('createBtn').onclick = async () => {
   try {
     sfx.ui();
+    const pass = roomPublic ? '' : $('roomPass').value;
+    if (!roomPublic && !pass) { $('roomInfo').textContent = 'Set a password for a private room (or switch to Public).'; return; }
     $('roomInfo').textContent = 'Creating room… allow WebRTC…';
-    const code = await net.host();
+    const code = await net.host(pass);
     roomCode = code; isHost = true;
     $('roomCode').value = code;
-    $('roomInfo').textContent = `Room ${code} — share the code! Press PLAY to start as host (bots fill gaps). ${net.supported ? '' : ''}`;
+    $('shareLink').value = roomLink(code);
+    $('shareRow').classList.remove('hidden');
+    $('roomInfo').textContent = roomPublic
+      ? `🌐 Public room ${code} — share the code/link, anyone can join! Press PLAY to start as host (bots fill gaps).`
+      : `🔒 Private room ${code} — guests need your password. Press PLAY to start as host.`;
     // host: start game immediately with fewer bots; guests join mid-game? v1: host starts now
     const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
     showGameUI();
@@ -200,7 +226,6 @@ $('createBtn').onclick = async () => {
         p = game._mkPlayer(meta?.name || ('guest' + peerId.slice(-3)), false, mode === 'solo' ? 't-' + peerId : 't-local');
         p.remote = true; p.remotePeer = peerId;
         p.x = game.local.x + 60; p.y = game.local.y + 60;
-        game.players.push(p);
         game.feed(`<b>${escapeHtml(p.name)}</b> joined`);
       }
       p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
@@ -215,44 +240,87 @@ $('createBtn').onclick = async () => {
   }
 };
 
+async function joinRoom(code, pass = '') {
+  sfx.ui();
+  code = (code || '').trim().toUpperCase();
+  if (!code) { $('roomInfo').textContent = 'Enter a room code first.'; return; }
+  $('roomInfo').textContent = 'Joining ' + code + '…';
+  await net.join(code);
+  roomCode = code; isHost = false;
+  const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
+  net.onDenied = (reason) => {
+    game.centerMsg('Join denied: ' + reason, 4);
+    setTimeout(() => { net.destroy(); showMenu(); $('roomInfo').textContent = 'Join denied: ' + reason + ' Check the password and retry.'; }, 2500);
+  };
+  showGameUI();
+  // guest: remote-render mode; seed stub world (host snapshot corrects)
+  game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true });
+  // local pseudo player for camera/identity
+  game.local = { name, x: 2100, y: 2100 };
+  // build a stub world so map renders before first snapshot
+  const { generateWorld } = await import('./world.js?v=113');
+  const w = generateWorld(12345);
+  game.obstacles = w.obstacles; game.loot = w.loot; game.ponds = w.ponds; game.roads = w.roads;
+  game.gas = { x: 2100, y: 2100, r: 2500, tx: 2100, ty: 2100, tr: 1500 };
+  net.onSnapshot = (snap) => game.applySnapshot(snap);
+  net.sendHello({ name, pass });
+  $('roomInfo').textContent = `Joined ${code} — following host simulation.`;
+}
+
 $('joinBtn').onclick = async () => {
   try {
-    sfx.ui();
-    const code = $('roomCode').value.trim().toUpperCase();
-    if (!code) { $('roomInfo').textContent = 'Enter a room code first.'; return; }
-    $('roomInfo').textContent = 'Joining ' + code + '…';
-    await net.join(code);
-    roomCode = code; isHost = false;
-    const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
-    showGameUI();
-    // guest: remote-render mode; seed stub world (host snapshot corrects)
-    game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true });
-    // local pseudo player for camera/identity
-    game.local = { name, x: 2100, y: 2100 };
-    // build a stub world so map renders before first snapshot
-    const { generateWorld } = await import('./world.js?v=112');
-    const w = generateWorld(12345);
-    game.obstacles = w.obstacles; game.loot = w.loot; game.ponds = w.ponds; game.roads = w.roads;
-    game.gas = { x: 2100, y: 2100, r: 2500, tx: 2100, ty: 2100, tr: 1500 };
-    net.onSnapshot = (snap) => game.applySnapshot(snap);
-    net.sendHello({ name });
-    $('roomInfo').textContent = `Joined ${code} — following host simulation.`;
+    await joinRoom($('roomCode').value, $('roomPass').value);
   } catch (e) {
     $('roomInfo').textContent = 'Join failed: ' + e.message;
   }
 };
 
-// Enter for quick-chat bubbles (only while playing, not while typing)
+// invite links: ?room=CODE auto-joins as guest
+(function () {
+  try {
+    const q = new URLSearchParams(location.search).get('room');
+    if (q && /^[A-Za-z0-9]{4}$/.test(q.trim())) {
+      $('roomCode').value = q.trim().toUpperCase();
+      $('roomInfo').textContent = `Invite link for room ${q.trim().toUpperCase()} — joining… (private rooms need the password in the field above)`;
+      setTimeout(() => { joinRoom(q, '').catch((e) => { $('roomInfo').textContent = 'Join failed: ' + e.message; }); }, 800);
+    }
+  } catch { /* no URL API — ignore */ }
+})();
+
+// Custom chat: Enter opens the box, type, Enter sends, Esc cancels
+let chatOpen = false;
+function inGame() {
+  return game.local && !game.local.dead && $('menu').classList.contains('hidden');
+}
+function openChat() {
+  if (!inGame() || chatOpen) return;
+  chatOpen = true;
+  $('chatBox').classList.remove('hidden');
+  $('chatInput').value = '';
+  setTimeout(() => $('chatInput').focus(), 0);
+}
+function closeChat(send) {
+  if (!chatOpen) return;
+  chatOpen = false;
+  const v = $('chatInput').value.trim().slice(0, 60);
+  $('chatBox').classList.add('hidden');
+  $('chatInput').blur();
+  if (send && v && inGame()) {
+    game.chat(game.local, v);
+    if (net.isHost) net.broadcastChat(game.local.name, v);
+    else if (!net.isHost && net.clientConn) net.sendChat(game.local.name, v);
+  }
+}
+$('chatInput').addEventListener('keydown', (e) => {
+  e.stopPropagation(); // keep game keys out while typing
+  if (e.key === 'Enter') closeChat(true);
+  else if (e.key === 'Escape') closeChat(false);
+});
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && chatOpen) { closeChat(false); return; }
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'TEXTAREA') return;
-  if (e.key === 'Enter' && game.local && !game.local.dead && $('menu').classList.contains('hidden')) {
-    const msgs = ['gg', 'yeet', 'oof', 'rush me', 'need shield!', 'gas gas gas'];
-    const t = msgs[(Math.random() * msgs.length) | 0];
-    game.chat(game.local, t);
-    if (net.isHost) net.broadcastChat(game.local.name, t);
-    else if (!net.isHost && net.clientConn) net.sendChat(game.local.name, t);
-  }
+  if (e.key === 'Enter') openChat(); // type a custom message, Enter again to send
 });
 
 function escapeHtml(s) { return String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }

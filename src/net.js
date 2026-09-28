@@ -4,7 +4,8 @@ export class P2PNet {
   constructor() {
     this.peer = null; this.conns = new Map(); this.isHost = false;
     this.room = null; this.onPeers = null; this.onSnapshot = null; this.onInput = null;
-    this.onChatMsg = null; this.onMember = null;
+    this.onChatMsg = null; this.onMember = null; this.onDenied = null;
+    this.roomLocked = false; this.roomPassword = '';
   }
   get supported() { return typeof window !== 'undefined' && typeof window.Peer !== 'undefined'; }
   makeCode() {
@@ -12,11 +13,13 @@ export class P2PNet {
     let s = ''; for (let i = 0; i < 4; i++) s += c[(Math.random() * c.length) | 0];
     return s;
   }
-  async host() {
+  async host(password = '') {
     if (!this.supported) throw new Error('P2P lib not loaded (offline?)');
     const code = this.makeCode();
     await this._open('zombsclone-' + code);
     this.isHost = true; this.room = code;
+    this.roomPassword = password || '';
+    this.roomLocked = !!password;
     this.peer.on('connection', (c) => this._wireHostConn(c));
     return code;
   }
@@ -55,6 +58,12 @@ export class P2PNet {
       if (msg.t === 'input') this.onInput && this.onInput(conn.peer, msg.input, msg.meta);
       else if (msg.t === 'chat') this.onChatMsg && this.onChatMsg(msg.name, msg.text);
       else if (msg.t === 'hello') {
+        // private rooms need the password; public rooms (default) let anyone in
+        if (this.roomLocked && (msg.pass || '') !== this.roomPassword) {
+          try { conn.send({ t: 'denied', reason: 'Wrong room password.' }); } catch { }
+          setTimeout(() => { try { conn.close(); } catch { } }, 400);
+          return;
+        }
         // reply with accept; game layer adds player
         this.onMember && this.onMember(this.conns.size, msg);
         conn.send({ t: 'welcome', room: this.room });
@@ -67,6 +76,7 @@ export class P2PNet {
     conn.on('data', (msg) => {
       if (!msg) return;
       if (msg.t === 'snap') this.onSnapshot && this.onSnapshot(msg.snap);
+      else if (msg.t === 'denied') this.onDenied && this.onDenied(msg.reason || 'Join denied.');
       else if (msg.t === 'chat') this.onChatMsg && this.onChatMsg(msg.name, msg.text);
       else if (msg.t === 'welcome') { /* joined */ }
     });

@@ -21,7 +21,7 @@ Inspired by [ZombsRoyale.io](https://en.wikipedia.org/wiki/ZombsRoyale.io).
 | R | reload |
 | 1–4 | switch weapon |
 | Q | bandage, X shield/medkit |
-| M | big map, Enter quick-chat |
+| M | big map, Enter custom chat |
 
 Mobile: left-half virtual stick moves, right-half aims + fires.
 
@@ -31,7 +31,8 @@ Mobile: left-half virtual stick moves, right-half aims + fires.
 - Loot tiers Common→Legendary (gray/green/blue/purple/gold) × Pistol/SMG/Shotgun/AR/Burst/LMG/Sniper + ammo/heals/shield
 - Pre-match **lobby plaza** with countdown, plane flyover, steerable **parachute** (no shooting until you land), 🕊️ **grace period** where bots hold fire (they still retaliate), shrinking gas circles
 - 6000px map with 13 named POIs (Mansion, Lab, Farm…), pine forests, rocky corner, 900+ obstacles
-- Bots: scatter-drop across the map, loot scoring, zone rotation, strafing, range-keeping, miss-skill, healing, crate-breaking, random chat (`weird flex but ok`, `oof`, …)
+- Bots: trickle into the lobby gradually, scatter-drop across the map, loot scoring, zone rotation, strafing, range-keeping, miss-skill, healing, crate-breaking. Bots never chat.
+- Custom chat: press **Enter**, type your message, **Enter** again to send (**Esc** cancels). Shown as a bubble + in the chat log, relayed to P2P friends.
 - Procedural WebAudio SFX (no assets)
 
 ## Accounts (login system)
@@ -50,6 +51,7 @@ under their username; guests can still play via the nickname field.
 GitHub Pages serves **static files only**. A real 100-player authoritative server (Node + WebSockets) can't run there. So:
 
 - `src/net.js` uses PeerJS cloud for NAT-traversed WebRTC: host = authority, guests relay inputs.
+- Rooms are **public by default**: anyone with the 4-letter code or invite link (`?room=CODE`, auto-joins) can drop in. Hosts can switch to **Private** + password instead.
 - Want true massive online? Self-host `server/` (not included — see issues) and point the client at a WebSocket URL. The `Game.snapshot()` / `applySnapshot()` protocol is already decoupled for this.
 
 ## Run locally

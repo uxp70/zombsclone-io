@@ -29,9 +29,13 @@
 #playBtn:hover{filter:brightness(1.1)}
 .friends{margin-top:14px;background:#ffffff14;border-radius:10px;padding:10px}
 .fr-title{font-size:12px;font-weight:800;color:#ffd23f;margin-bottom:8px}
-.fr-row{display:flex;gap:6px}
+.fr-row{display:flex;gap:6px;margin-bottom:6px}
 .fr-row button{flex:1;padding:8px;border:none;border-radius:7px;font-weight:800;cursor:pointer;background:#4a90e2;color:#fff}
 .fr-row input{width:80px;text-align:center;text-transform:uppercase;font-weight:900;border-radius:7px;border:none}
+.vis{background:#39424a!important}
+.vis.active{background:#5da500!important}
+#roomPass{text-transform:none;width:110px}
+#shareRow input{flex:2;width:auto;text-transform:none;font-weight:400;font-size:12px}
 #roomInfo{font-size:12px;opacity:.75;margin-top:8px}
 .help{font-size:12px;opacity:.75;margin-top:12px;line-height:1.6}
 .foot{margin-top:10px;font-size:12px;opacity:.6}.foot a{color:#ffd23f}
@@ -66,6 +70,8 @@
 #chatLog{position:absolute;left:12px;bottom:120px;display:flex;flex-direction:column;gap:4px;max-width:300px}
 .chat{background:#fff;color:#222;border-radius:8px;padding:4px 8px;font-size:12px;box-shadow:0 2px 6px #0005}
 .chat b{font-size:11px}
+#chatBox{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);pointer-events:auto;width:min(420px,80vw)}
+#chatInput{width:100%;padding:10px 14px;border-radius:10px;border:2px solid #ffd23f;font-size:15px;outline:none;background:#fffffff2}
 #winBanner{position:fixed;left:0;right:0;bottom:60px;text-align:center;z-index:15;pointer-events:none}
 #winText{font-size:44px;font-weight:900;color:#ffd23f;text-shadow:0 4px 0 #7a4d00,0 0 30px #000}
 #winSub{color:#fff;font-weight:800;text-shadow:0 2px 0 #000}

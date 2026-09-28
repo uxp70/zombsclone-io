@@ -27,6 +27,7 @@
     <div id="ammoBox"><div id="ammoIcon">🎯</div><div id="ammoCount">∞</div><div id="nades">…</div></div>
   </div>
   <div id="chatLog"></div>
+  <div id="chatBox" class="hidden"><input id="chatInput" maxlength="60" autocomplete="off" placeholder="Say something…  (Enter = send, Esc = cancel)" /></div>
   <div id="stickL" class="stick hidden"><div class="nub"></div></div>
   <div id="stickR" class="stick hidden"><div class="nub"></div></div>
 </div>
@@ -67,17 +68,26 @@
     <div class="friends">
       <div class="fr-title">PLAY WITH FRIENDS — P2P ONLINE (no server needed)</div>
       <div class="fr-row">
+        <button id="pubBtn" class="vis active">🌐 Public</button>
+        <button id="privBtn" class="vis">🔒 Private</button>
+        <input id="roomPass" type="password" maxlength="32" placeholder="Password (private)" class="hidden" />
+      </div>
+      <div class="fr-row">
         <button id="createBtn">Create Room</button>
         <input id="roomCode" maxlength="6" placeholder="CODE" />
         <button id="joinBtn">Join</button>
       </div>
-      <div id="roomInfo">Solo = offline + 60–90 bots. Create/Join = real friends via WebRTC + bots fill gaps.</div>
+      <div class="fr-row hidden" id="shareRow">
+        <input id="shareLink" readonly />
+        <button id="copyBtn">Copy link</button>
+      </div>
+      <div id="roomInfo">Rooms are <b>public by default</b> — anyone with the code or link joins. Solo = offline + bots.</div>
     </div>
     <div class="help">
-      <div><b>WASD</b> move • <b>Mouse</b> aim • <b>Click/Space</b> shoot • <b>R</b> reload • <b>E</b> loot • <b>1-4</b> weapons • <b>Q</b> bandage • <b>X/E</b> medkit/shield • <b>M</b> big map</div>
+      <div><b>WASD</b> move • <b>Mouse</b> aim • <b>Click/Space</b> shoot • <b>R</b> reload • <b>E</b> loot • <b>1-4</b> weapons • <b>Q</b> bandage • <b>X</b> shield/medkit • <b>M</b> big map • <b>Enter</b> chat</div>
       <div>Drop from the plane with <b>Space / F</b>, steer your parachute with <b>WASD</b> — you can't shoot until you land. Bots hold fire during the 🕊️ grace period.</div>
     </div>
-    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • <span id="buildTag">v112</span> • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
+    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • <span id="buildTag">v113</span> • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
   </div>
 </div>
 
@@ -92,6 +102,6 @@
 
 <div id="winBanner" class="hidden"><div id="winText">WINNER WINNER!</div><div id="winSub">#1 Victory Royale</div></div>
 
-<script type="module" src="src/main.js?v=112"></script>
+<script type="module" src="src/main.js?v=113"></script>
 </body>
 </html>
