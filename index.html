@@ -64,30 +64,20 @@
       <button data-mode="duo" class="mode">Duo</button>
       <button data-mode="squad" class="mode">Squad (4)</button>
     </div>
-    <button id="playBtn">PLAY</button>
-    <div class="friends">
-      <div class="fr-title">PLAY WITH FRIENDS — P2P ONLINE (no server needed)</div>
-      <div class="fr-row">
-        <button id="pubBtn" class="vis active">🌐 Public</button>
-        <button id="privBtn" class="vis">🔒 Private</button>
-        <input id="roomPass" type="password" maxlength="32" placeholder="Password (private)" class="hidden" />
-      </div>
-      <div class="fr-row">
-        <button id="createBtn">Create Room</button>
-        <input id="roomCode" maxlength="6" placeholder="CODE" />
-        <button id="joinBtn">Join</button>
-      </div>
-      <div class="fr-row hidden" id="shareRow">
-        <input id="shareLink" readonly />
-        <button id="copyBtn">Copy link</button>
-      </div>
-      <div id="roomInfo">Rooms are <b>public by default</b> — anyone with the code or link joins. Solo = offline + bots.</div>
+    <div class="play-row">
+      <button id="botsBtn">🤖 PLAY VS BOTS</button>
+      <button id="onlineBtn">🌐 PLAY ONLINE</button>
     </div>
+    <div id="onlineBox" class="hidden">
+      <div id="onlineStatus">Searching…</div>
+      <button id="cancelOnlineBtn">Cancel</button>
+    </div>
+    <div class="modes-note">Solo/Duo/Squad apply to bots mode. Online is free-for-all: real players + bots, starts 30s after 2+ players join.</div>
     <div class="help">
       <div><b>WASD</b> move • <b>Mouse</b> aim • <b>Click/Space</b> shoot • <b>R</b> reload • <b>E</b> loot • <b>1-4</b> weapons • <b>Q</b> bandage • <b>X</b> shield/medkit • <b>M</b> big map • <b>Enter</b> chat</div>
       <div>Drop from the plane with <b>Space / F</b>, steer your parachute with <b>WASD</b> — you can't shoot until you land. Guns come <b>only</b> from 🎁 basic and 💛 golden chests (press <b>E</b>) — check houses!</div>
     </div>
-    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • <span id="buildTag">v114</span> • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
+    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • <span id="buildTag">v115</span> • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
   </div>
 </div>
 
@@ -102,6 +92,6 @@
 
 <div id="winBanner" class="hidden"><div id="winText">WINNER WINNER!</div><div id="winSub">#1 Victory Royale</div></div>
 
-<script type="module" src="src/main.js?v=114"></script>
+<script type="module" src="src/main.js?v=115"></script>
 </body>
 </html>

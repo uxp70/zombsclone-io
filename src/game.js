@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=114';
-import { generateWorld } from './world.js?v=114';
-import { makeBotController } from './bots.js?v=114';
-import { sfx } from './audio.js?v=114';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=115';
+import { generateWorld } from './world.js?v=115';
+import { makeBotController } from './bots.js?v=115';
+import { sfx } from './audio.js?v=115';
 
 let PID = 1;
 
@@ -527,6 +527,18 @@ export class Game {
     p.y = clamp(p.y, lb.y + 24, lb.y + lb.h - 24);
   }
 
+  followCam(L, dt, zoomMul = 1) {
+    const zoom = this.baseZoom * zoomMul;
+    this.cam.zoom = lerp(this.cam.zoom || zoom, zoom, Math.min(1, dt * 4));
+    const tx = L.x - this.cv.width / this.cam.zoom / 2;
+    const ty = L.y - this.cv.height / this.cam.zoom / 2;
+    if (Math.hypot(this.cam.x - tx, this.cam.y - ty) > 2500) { this.cam.x = tx; this.cam.y = ty; }
+    else {
+      this.cam.x = lerp(this.cam.x, tx, Math.min(1, dt * 8));
+      this.cam.y = lerp(this.cam.y, ty, Math.min(1, dt * 8));
+    }
+  }
+
   updateLobby(dt) {
     this.lobbyT -= dt;
     // bots trickle in over the countdown — flush faster near the end
@@ -569,11 +581,7 @@ export class Game {
       this.floatChats[i].t -= dt;
       if (this.floatChats[i].t <= 0) this.floatChats.splice(i, 1);
     }
-    if (L) {
-      this.cam.zoom = lerp(this.cam.zoom || this.baseZoom, this.baseZoom, Math.min(1, dt * 4));
-      this.cam.x = lerp(this.cam.x, L.x - this.cv.width / this.cam.zoom / 2, Math.min(1, dt * 8));
-      this.cam.y = lerp(this.cam.y, L.y - this.cv.height / this.cam.zoom / 2, Math.min(1, dt * 8));
-    }
+    if (L) this.followCam(L, dt);
     if (this.onHud && L) {
       this.onHud({
         hp: L.hp, shield: L.shield, ammo: L.slots[L.slotI], reserve: L.ammo,
@@ -792,12 +800,7 @@ export class Game {
     }
 
     // camera follows local
-    if (L) {
-      const zoom = this.baseZoom * (L.chute > 0 ? 0.75 : 1);
-      this.cam.zoom = lerp(this.cam.zoom || zoom, zoom, Math.min(1, dt * 4));
-      this.cam.x = lerp(this.cam.x, L.x - this.cv.width / this.cam.zoom / 2, Math.min(1, dt * 8));
-      this.cam.y = lerp(this.cam.y, L.y - this.cv.height / this.cam.zoom / 2, Math.min(1, dt * 8));
-    }
+    if (L) this.followCam(L, dt, L.chute > 0 ? 0.75 : 1);
 
     // HUD + net
     this.snapT -= dt;
@@ -1243,9 +1246,9 @@ export class Game {
       ctx.restore();
     }
 
-    // gas overlay: darken outside circle
+    // gas overlay: darken outside circle (not in the pre-match lobby)
     const g = this.gas;
-    if (g) {
+    if (g && this.phase !== 'lobby') {
       ctx.save();
       ctx.beginPath();
       ctx.rect(vx0 - 500, vy0 - 500, (vx1 - vx0) + 1000, (vy1 - vy0) + 1000);

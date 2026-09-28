@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=114';
-import { P2PNet } from './net.js?v=114';
-import { WEAPONS } from './config.js?v=114';
-import { sfx } from './audio.js?v=114';
-import { auth } from './auth.js?v=114';
-window.__ZC_BUILD = 'v114';
+import { Game } from './game.js?v=115';
+import { P2PNet } from './net.js?v=115';
+import { WEAPONS } from './config.js?v=115';
+import { sfx } from './audio.js?v=115';
+import { auth } from './auth.js?v=115';
+window.__ZC_BUILD = 'v115';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -167,7 +167,7 @@ game.onChat = (p, text) => {
 // expose chat for bots (bots.js uses g.onChat)
 game.feed = game.feed.bind(game);
 
-$('playBtn').onclick = () => {
+$('botsBtn').onclick = () => {
   sfx.ensure(); sfx.ui();
   const me = auth.current();
   const name = (me && me.name) || $('nick').value || 'Prodigy';
@@ -178,112 +178,147 @@ $('playBtn').onclick = () => {
   $('repoLink').href = location.href.includes('github.io') ? location.href : 'https://github.com';
 };
 
-$('againBtn').onclick = () => { $('playBtn').click(); };
+$('againBtn').onclick = () => { showMenu(); $('botsBtn').click(); };
 $('menuBtn').onclick = showMenu;
 
-// --- P2P rooms (public by default, optional private password) ---
-let roomPublic = true;
-$('pubBtn').onclick = () => {
-  roomPublic = true; sfx.ui();
-  $('pubBtn').classList.add('active'); $('privBtn').classList.remove('active');
-  $('roomPass').classList.add('hidden');
-};
-$('privBtn').onclick = () => {
-  roomPublic = false; sfx.ui();
-  $('privBtn').classList.add('active'); $('pubBtn').classList.remove('active');
-  $('roomPass').classList.remove('hidden');
-};
-function roomLink(code) {
-  return location.origin + location.pathname + '?room=' + code;
+// --- ONLINE: automatic public lobbies, no rooms/codes ---
+// First arrival hosts (authoritative sim), rest join as guests.
+// Match starts 30s after 2+ humans are present. Bots fill to ~60.
+const ONLINE_BOTS = 55;
+const ONLINE_START_WAIT = 30;
+let onlineTimer = null;
+let onlineCancelled = false;
+
+function onlineStatus(text) {
+  $('onlineBox').classList.remove('hidden');
+  $('onlineStatus').textContent = text;
 }
-$('copyBtn').onclick = async () => {
-  const link = $('shareLink').value;
-  try { await navigator.clipboard.writeText(link); $('copyBtn').textContent = 'Copied!'; }
-  catch { $('shareLink').select(); document.execCommand('copy'); $('copyBtn').textContent = 'Copied!'; }
-  setTimeout(() => { $('copyBtn').textContent = 'Copy link'; }, 2000);
+function onlineIdle() {
+  $('onlineBox').classList.add('hidden');
+  $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
+  if (onlineTimer) { clearInterval(onlineTimer); onlineTimer = null; }
+}
+$('cancelOnlineBtn').onclick = () => {
+  onlineCancelled = true;
+  if (onlineTimer) { clearInterval(onlineTimer); onlineTimer = null; }
+  net.destroy();
+  onlineIdle();
+  showMenu();
 };
-$('createBtn').onclick = async () => {
+
+function playerName() {
+  const me = auth.current();
+  return (me && me.name) || $('nick').value || 'Prodigy';
+}
+
+$('onlineBtn').onclick = async () => {
+  sfx.ensure(); sfx.ui();
+  onlineCancelled = false;
+  $('botsBtn').disabled = true; $('onlineBtn').disabled = true;
+  const name = playerName();
   try {
-    sfx.ui();
-    const pass = roomPublic ? '' : $('roomPass').value;
-    if (!roomPublic && !pass) { $('roomInfo').textContent = 'Set a password for a private room (or switch to Public).'; return; }
-    $('roomInfo').textContent = 'Creating room… allow WebRTC…';
-    const code = await net.host(pass);
-    roomCode = code; isHost = true;
-    $('roomCode').value = code;
-    $('shareLink').value = roomLink(code);
-    $('shareRow').classList.remove('hidden');
-    $('roomInfo').textContent = roomPublic
-      ? `🌐 Public room ${code} — share the code/link, anyone can join! Press PLAY to start as host (bots fill gaps).`
-      : `🔒 Private room ${code} — guests need your password. Press PLAY to start as host.`;
-    // host: start game immediately with fewer bots; guests join mid-game? v1: host starts now
-    const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
-    showGameUI();
-    game.start({ name, mode, botCount: 50, net, isRemote: false, teamId: 't-local' });
-    net.onInput = (peerId, input, meta) => {
-      // map peer → remote player (create on first hello/input)
-      let p = game.players.find((x) => x.remotePeer === peerId);
-      if (!p) {
-        // reuse mkPlayer via game._mkPlayer
-        p = game._mkPlayer(meta?.name || ('guest' + peerId.slice(-3)), false, mode === 'solo' ? 't-' + peerId : 't-local');
-        p.remote = true; p.remotePeer = peerId;
-        p.x = game.local.x + 60; p.y = game.local.y + 60;
-        game.feed(`<b>${escapeHtml(p.name)}</b> joined`);
-      }
-      p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
-      p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
-      p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
-      if (input.drop && p.dropping) game.tryDrop(p);
-      if (input.use) game.tryInteract(p);
-    };
-    net.onMember = (n) => { $('roomInfo').textContent = `Room ${code} — ${n} friend(s) connected (+bots).`; };
-    net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
+    onlineStatus('Searching for a public lobby…');
+    const found = await net.findLobby((s) => { if (!onlineCancelled) onlineStatus(s); });
+    if (onlineCancelled) return;
+    if (found.role === 'host') hostOnlineLobby(name, found.lobby);
+    else guestOnlineLobby(name, found.lobby);
   } catch (e) {
-    $('roomInfo').textContent = 'Failed: ' + e.message + ' — playing solo with bots instead.';
+    if (!onlineCancelled) onlineStatus('Failed: ' + e.message);
+    $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
   }
 };
 
-async function joinRoom(code, pass = '') {
-  sfx.ui();
-  code = (code || '').trim().toUpperCase();
-  if (!code) { $('roomInfo').textContent = 'Enter a room code first.'; return; }
-  $('roomInfo').textContent = 'Joining ' + code + '…';
-  await net.join(code);
-  roomCode = code; isHost = false;
-  const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
-  net.onDenied = (reason) => {
-    game.centerMsg('Join denied: ' + reason, 4);
-    setTimeout(() => { net.destroy(); showMenu(); $('roomInfo').textContent = 'Join denied: ' + reason + ' Check the password and retry.'; }, 2500);
+function openHumans() {
+  return 1 + net.peerCount;
+}
+
+function hostOnlineLobby(name, lobby) {
+  net.gameInfo = { started: false, seed: 0 };
+  net.onMember = (n, hello) => {
+    game.feed(`<b>${escapeHtml((hello && hello.name) || 'Someone')}</b> joined the lobby`);
   };
-  showGameUI();
-  // guest: remote-render mode (first snapshot adopts the host's seeded world)
-  game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true });
-  // local pseudo player for camera/identity
-  game.local = { name, x: 4500, y: 4500 };
-  net.onSnapshot = (snap) => game.applySnapshot(snap);
-  net.sendHello({ name, pass });
-  $('roomInfo').textContent = `Joined ${code} — following host simulation.`;
+  net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
+  let countdown = -1;
+  onlineStatus(`Hosting lobby ${lobby} — waiting for players… (1 here)`);
+  onlineTimer = setInterval(() => {
+    if (onlineCancelled) { clearInterval(onlineTimer); onlineTimer = null; return; }
+    const humans = openHumans();
+    if (humans >= 2 && countdown < 0) countdown = ONLINE_START_WAIT;
+    if (countdown >= 0) {
+      countdown -= 0.5;
+      onlineStatus(`Starting in ${Math.max(0, Math.ceil(countdown))}… (${humans} players)`);
+      if (countdown <= 0) {
+        clearInterval(onlineTimer); onlineTimer = null;
+        startOnlineMatch(name);
+        return;
+      }
+    } else {
+      onlineStatus(`Waiting for players… (${humans} here) — match starts 30s after 2+ join.`);
+    }
+    net.broadcastLobby({ humans, countdown: Math.max(0, Math.ceil(countdown)), started: false });
+  }, 500);
 }
 
-$('joinBtn').onclick = async () => {
-  try {
-    await joinRoom($('roomCode').value, $('roomPass').value);
-  } catch (e) {
-    $('roomInfo').textContent = 'Join failed: ' + e.message;
-  }
-};
-
-// invite links: ?room=CODE auto-joins as guest
-(function () {
-  try {
-    const q = new URLSearchParams(location.search).get('room');
-    if (q && /^[A-Za-z0-9]{4}$/.test(q.trim())) {
-      $('roomCode').value = q.trim().toUpperCase();
-      $('roomInfo').textContent = `Invite link for room ${q.trim().toUpperCase()} — joining… (private rooms need the password in the field above)`;
-      setTimeout(() => { joinRoom(q, '').catch((e) => { $('roomInfo').textContent = 'Join failed: ' + e.message; }); }, 800);
+function wireHostSim() {
+  net.onInput = (peerId, input, meta) => {
+    let p = game.players.find((x) => x.remotePeer === peerId);
+    if (!p) {
+      p = game._mkPlayer(meta?.name || ('guest' + peerId.slice(-3)), false, 't-' + peerId);
+      p.remote = true; p.remotePeer = peerId;
+      const L = game.local;
+      p.x = (L ? L.x : 4500) + 60; p.y = (L ? L.y : 4500) + 60;
+      if (game.phase !== 'lobby') {
+        // late join straight into the action
+        p.dropping = false; p.chute = 0;
+        p.x = Math.min(Math.max(p.x, 60), 8940); p.y = Math.min(Math.max(p.y, 60), 8940);
+      } else {
+        game.lobbyPos(p);
+      }
+      game.players.push(p);
+      game.feed(`<b>${escapeHtml(p.name)}</b> joined`);
     }
-  } catch { /* no URL API — ignore */ }
-})();
+    p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
+    p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
+    p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
+    if (input.drop && p.dropping) game.tryDrop(p);
+    if (input.use) game.tryInteract(p);
+  };
+}
+
+function startOnlineMatch(name) {
+  const seed = (Math.random() * 1e9) | 0;
+  net.gameInfo = { started: true, seed };
+  net.broadcastStart(seed);
+  wireHostSim();
+  onlineIdle();
+  showGameUI();
+  // online is free-for-all: every human + bot on their own team
+  game.start({ name, mode: 'solo', botCount: ONLINE_BOTS, net, isRemote: false, teamId: 't-' + name, seed });
+  const me = auth.current();
+  if (me && game.local) game.local.color = me.color;
+}
+
+function guestOnlineLobby(name, lobby) {
+  onlineStatus(`Joined lobby ${lobby} — waiting for players…`);
+  net.onLobby = (m) => {
+    if (m.countdown > 0) onlineStatus(`Starting in ${m.countdown}… (${m.humans} players)`);
+    else onlineStatus(`Waiting for players… (${m.humans} here) — starts 30s after 2+ join.`);
+  };
+  net.onDenied = (reason) => {
+    onlineIdle(); net.destroy(); showMenu();
+    onlineStatus(''); $('onlineBox').classList.remove('hidden');
+    $('onlineStatus').textContent = 'Join denied: ' + reason;
+  };
+  net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
+  net.onStart = (seed) => {
+    net.onSnapshot = (snap) => game.applySnapshot(snap);
+    onlineIdle();
+    showGameUI();
+    game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true, seed });
+    game.local = { name, x: 4500, y: 4500 };
+    net.sendHello({ name });
+  };
+}
 
 // Custom chat: Enter opens the box, type, Enter sends, Esc cancels
 let chatOpen = false;

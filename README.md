@@ -6,9 +6,8 @@ Inspired by [ZombsRoyale.io](https://en.wikipedia.org/wiki/ZombsRoyale.io).
 
 ## Play
 
-- Open `index.html` (or the GitHub Pages URL) → nickname → Solo/Duo/Squad → **PLAY**
-- **Solo**: offline, 75 bots, shrinking poison-gas zone, plane drops
-- **Play with friends**: `Create Room` → share 4-letter code → friends `Join`. Host simulates authoritatively at 12 snaps/s; bots backfill. Duo/Squad shares a team with the host.
+- Open `index.html` (or the GitHub Pages URL) → optional login → **🤖 PLAY VS BOTS** (offline, up to 100 bots) or **🌐 PLAY ONLINE** (auto-joins a public lobby, starts 30s after 2+ real players, bots fill the rest)
+- Solo/Duo/Squad team sizes apply to bots mode. Online is free-for-all.
 
 ## Controls
 
@@ -53,7 +52,7 @@ under their username; guests can still play via the nickname field.
 GitHub Pages serves **static files only**. A real 100-player authoritative server (Node + WebSockets) can't run there. So:
 
 - `src/net.js` uses PeerJS cloud for NAT-traversed WebRTC: host = authority, guests relay inputs.
-- Rooms are **public by default**: anyone with the 4-letter code or invite link (`?room=CODE`, auto-joins) can drop in. Hosts can switch to **Private** + password instead.
+- **No rooms, no codes**: press **🌐 PLAY ONLINE** to auto-matchmake into a public lobby (5 slots). First arrival hosts; the match starts 30s after 2+ humans join, late joins drop straight into the running game. Hosts can take 5 guests (6 humans) + 55 bots.
 - Want true massive online? Self-host `server/` (not included — see issues) and point the client at a WebSocket URL. The `Game.snapshot()` / `applySnapshot()` protocol is already decoupled for this.
 
 ## Run locally

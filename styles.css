@@ -27,6 +27,16 @@
 .mode.active{background:#ffd23f;color:#222}
 #playBtn{width:100%;padding:13px;font-size:22px;font-weight:900;border:none;border-radius:10px;background:linear-gradient(#8be000,#5da500);color:#fff;cursor:pointer;text-shadow:0 2px 0 #0006}
 #playBtn:hover{filter:brightness(1.1)}
+.play-row{display:flex;gap:8px;margin-bottom:10px}
+.play-row button{flex:1;padding:13px;font-size:16px;font-weight:900;border:none;border-radius:10px;cursor:pointer;color:#fff;text-shadow:0 2px 0 #0006}
+#botsBtn{background:linear-gradient(#8be000,#5da500)}
+#onlineBtn{background:linear-gradient(#4a90e2,#2c5a92)}
+.play-row button:hover{filter:brightness(1.12)}
+.play-row button:disabled{opacity:.5;cursor:wait}
+#onlineBox{background:#ffffff14;border-radius:10px;padding:10px;margin-bottom:10px}
+#onlineStatus{font-size:14px;font-weight:700;margin-bottom:8px}
+#cancelOnlineBtn{width:100%;padding:8px;border-radius:7px;background:#39424a;color:#fff;border:none;font-weight:800;cursor:pointer}
+.modes-note{font-size:11px;opacity:.6;margin-bottom:10px}
 .friends{margin-top:14px;background:#ffffff14;border-radius:10px;padding:10px}
 .fr-title{font-size:12px;font-weight:800;color:#ffd23f;margin-bottom:8px}
 .fr-row{display:flex;gap:6px;margin-bottom:6px}
