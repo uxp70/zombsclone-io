@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=111';
-import { generateWorld } from './world.js?v=111';
-import { makeBotController } from './bots.js?v=111';
-import { sfx } from './audio.js?v=111';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=112';
+import { generateWorld } from './world.js?v=112';
+import { makeBotController } from './bots.js?v=112';
+import { sfx } from './audio.js?v=112';
 
 let PID = 1;
 
@@ -104,43 +104,50 @@ export class Game {
     };
     this._nextGasTarget();
 
-    // plane path across map
-    const a = Math.random() * Math.PI * 2;
-    const cx = WORLD_SIZE / 2, cy = WORLD_SIZE / 2, L = WORLD_SIZE * 0.75;
-    this.plane = {
-      x: cx - Math.cos(a) * L, y: cy - Math.sin(a) * L,
-      dx: Math.cos(a), dy: Math.sin(a), speed: 420, active: true, t: 0,
-      ex: cx + Math.cos(a) * L, ey: cy + Math.sin(a) * L,
-    };
+    // lobby plaza at map center — cleared of obstacles/loot below
+    const pw = 820, ph = 620;
+    this.lobby = { x: WORLD_SIZE / 2 - pw / 2, y: WORLD_SIZE / 2 - ph / 2, w: pw, h: ph };
+    const inPen = (x, y) => x > this.lobby.x - 40 && x < this.lobby.x + this.lobby.w + 40 && y > this.lobby.y - 40 && y < this.lobby.y + this.lobby.h + 40;
+    this.obstacles = this.obstacles.filter((o) => !inPen(o.x + (o.w || 0) / 2, o.y + (o.h || 0) / 2));
+    this.loot = this.loot.filter((l) => !inPen(l.x, l.y));
+    this.compounds = w.compounds;
+
+    this.phase = 'lobby';
+    this.lobbyT = LOBBY_TIME;
+    this.peaceT = 0;
+    this.plane = { x: 0, y: 0, dx: 1, dy: 0, speed: 460, active: false, t: 0, ex: 0, ey: 0 };
 
     // teams
     const names = shuffle([...BOT_NAMES]).slice(0, botCount + 8);
     let ni = 0;
     const mkName = (preferred) => preferred && preferred.trim() ? preferred.trim().slice(0, 14) : (names[ni++] || 'bot' + ni);
+    const penSpawn = () => ({
+      x: this.lobby.x + rand(60, this.lobby.w - 60),
+      y: this.lobby.y + rand(60, this.lobby.h - 60),
+    });
 
     if (!isRemote) {
       this.local = this._mkPlayer(mkName(name), false, teamId || 't-local');
-      this.local.x = this.plane.x; this.local.y = this.plane.y; this.local.dropping = true;
+      Object.assign(this.local, penSpawn());
+      this.local.faceAngle = rand(0, 6.28);
       this.players.push(this.local);
       // offline teammates for duo/squad
       const mateCount = mode === 'duo' ? 1 : mode === 'squad' ? 3 : 0;
       for (let i = 0; i < mateCount; i++) {
         const m = this._mkPlayer(names[ni++] || ('mate' + i), true, 't-local');
-        m.x = this.plane.x; m.y = this.plane.y; m.dropping = true;
+        Object.assign(m, penSpawn());
         m.skill = rand(0.55, 0.85);
         this.players.push(m);
         this.botControllers.set(m.id, makeBotController(m, this));
       }
       for (let i = 0; i < botCount; i++) {
         const b = this._mkPlayer(names[ni++] || ('bot' + i), true, 't-' + i);
-        b.x = this.plane.x; b.y = this.plane.y; b.dropping = true;
+        Object.assign(b, penSpawn());
         b.skill = rand(0.25, 0.9);
-        // give a few bots better landing loot luck via drop timing
-        b.dropAt = rand(1.5, 9);
         this.players.push(b);
         this.botControllers.set(b.id, makeBotController(b, this));
       }
-      this.centerMsg('Jump with SPACE / F!', 3);
+      this.centerMsg('Match starting soon — run around!', 3);
     }
 
     this.running = true; this.last = performance.now();
@@ -167,7 +174,7 @@ export class Game {
       speed: 265, gun: 'fists', slots: [{ gun: 'fists', rarity: 0, magAmmo: Infinity }], slotI: 0,
       ammo: { light: 60, medium: 30, shell: 8, heavy: 5 },
       heals: { bandage: 1, medkit: 0, shield: 0 },
-      kills: 0, dropping: false, dropAnim: 0, reloadT: 0, shootCd: 0, healing: null,
+      kills: 0, dropping: false, chute: 0, reloadT: 0, shootCd: 0, healing: null,
       input: { mx: 0, my: 0, shoot: false },
       skill: rand(0.3, 0.8), armor: 0,
       color: `hsl(${(Math.random() * 360) | 0} 65% 55%)`,
@@ -220,10 +227,13 @@ export class Game {
     else if (type === 'shield' && p.heals.shield > 0 && p.shield < 100) p.healing = { type, t: 2.4 };
   }
   tryDrop(p) {
-    if (!p.dropping) return;
-    p.dropping = false; p.dropAnim = 1.4;
-    // scatter landing a bit
-    p.x += rand(-40, 40); p.y += rand(-40, 40);
+    if (this.phase !== 'plane' || !p.dropping || p.dead) return;
+    p.dropping = false;
+    p.chute = CHUTE_TIME;
+    // steerable descent — scatter the landing
+    p.x = clamp(p.x + rand(-380, 380), 60, WORLD_SIZE - 60);
+    p.y = clamp(p.y + rand(-380, 380), 60, WORLD_SIZE - 60);
+    if (p === this.local) this.centerMsg('Steer with WASD — landing…', 2);
   }
   nearestLoot(p, maxD = 70) {
     let best = null, bd = maxD * maxD;
@@ -239,7 +249,7 @@ export class Game {
     if (l) this.tryPickup(p, l);
   }
   tryPickup(p, l) {
-    if (!l || l.taken || p.dead) return false;
+    if (!l || l.taken || p.dead || p.dropping || p.chute > 0) return false;
     if (dist2(p.x, p.y, l.x, l.y) > 85 * 85) return false;
     if (l.kind === 'weapon') {
       const existing = p.slots.findIndex((s) => s && s.gun === l.weapon);
@@ -275,6 +285,8 @@ export class Game {
   }
 
   fire(p) {
+    // no shooting in the lobby, on the plane, or while parachuting — land first
+    if (this.phase === 'lobby' || p.dropping || p.chute > 0) return;
     const s = p.slots[p.slotI]; if (!s) return;
     const w = WEAPONS[s.gun];
     if (p.reloadT > 0 || p.shootCd > 0 || p.healing) return;
@@ -328,8 +340,9 @@ export class Game {
   }
 
   damage(target, dmg, attacker) {
-    if (target.dead) return;
+    if (target.dead || this.phase === 'lobby') return;
     target.lastDmgFrom = attacker;
+    target.lastDmgT = this.time;
     let rem = dmg;
     if (target.shield > 0) {
       const absorbed = Math.min(target.shield, rem * 0.6);
@@ -419,45 +432,136 @@ export class Game {
     }
   }
 
+  startPlane() {
+    const a = Math.random() * Math.PI * 2;
+    const cx = WORLD_SIZE / 2, cy = WORLD_SIZE / 2, Lg = WORLD_SIZE * 0.85;
+    const pl = this.plane;
+    pl.x = cx - Math.cos(a) * Lg; pl.y = cy - Math.sin(a) * Lg;
+    pl.dx = Math.cos(a); pl.dy = Math.sin(a);
+    pl.ex = cx + Math.cos(a) * Lg; pl.ey = cy + Math.sin(a) * Lg;
+    pl.speed = 520; pl.t = 0; pl.active = true;
+    for (const p of this.players) {
+      if (p.dead) continue;
+      p.dropping = true; p.chute = 0; p.healing = null; p.reloadT = 0;
+      p.x = pl.x; p.y = pl.y;
+      if (p.isBot) p.dropAt = rand(0.5, 12.5); // scatter bots across the whole map
+    }
+    this.bullets.length = 0;
+    this.phase = 'plane';
+    this.peaceT = GRACE_TIME; // grace runs from first jump, not plane end
+    this.centerMsg('Jump with SPACE / F!', 3);
+  }
+
+  lobbyPos(p) {
+    const lb = this.lobby;
+    p.x = clamp(p.x, lb.x + 24, lb.x + lb.w - 24);
+    p.y = clamp(p.y, lb.y + 24, lb.y + lb.h - 24);
+  }
+
+  updateLobby(dt) {
+    this.lobbyT -= dt;
+    const L = this.local;
+    if (L && !L.dead) {
+      let mx = 0, my = 0;
+      if (this.keys['w'] || this.keys['arrowup']) my -= 1;
+      if (this.keys['s'] || this.keys['arrowdown']) my += 1;
+      if (this.keys['a'] || this.keys['arrowleft']) mx -= 1;
+      if (this.keys['d'] || this.keys['arrowright']) mx += 1;
+      L.input.mx = mx; L.input.my = my; L.input.shoot = false;
+      const wx = this.cam.x + this.mouse.x / this.cam.zoom;
+      const wy = this.cam.y + this.mouse.y / this.cam.zoom;
+      L.faceAngle = Math.atan2(wy - L.y, wx - L.x);
+    }
+    for (const [id, ctl] of this.botControllers) {
+      const p = this.players.find((x) => x.id === id);
+      if (!p || p.dead || p.remote) continue;
+      ctl.update(dt);
+    }
+    for (const p of this.players) {
+      if (p.dead) continue;
+      const n = Math.hypot(p.input.mx, p.input.my);
+      if (n > 0.01) {
+        p.vx = lerp(p.vx, (p.input.mx / Math.max(1, n)) * p.speed, Math.min(1, dt * 10));
+        p.vy = lerp(p.vy, (p.input.my / Math.max(1, n)) * p.speed, Math.min(1, dt * 10));
+      } else { p.vx = lerp(p.vx, 0, Math.min(1, dt * 10)); p.vy = lerp(p.vy, 0, Math.min(1, dt * 10)); }
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      this.lobbyPos(p);
+    }
+    for (let i = this.floatChats.length - 1; i >= 0; i--) {
+      this.floatChats[i].t -= dt;
+      if (this.floatChats[i].t <= 0) this.floatChats.splice(i, 1);
+    }
+    if (L) {
+      this.cam.zoom = lerp(this.cam.zoom || this.baseZoom, this.baseZoom, Math.min(1, dt * 4));
+      this.cam.x = lerp(this.cam.x, L.x - this.cv.width / this.cam.zoom / 2, Math.min(1, dt * 8));
+      this.cam.y = lerp(this.cam.y, L.y - this.cv.height / this.cam.zoom / 2, Math.min(1, dt * 8));
+    }
+    if (this.onHud && L) {
+      this.onHud({
+        hp: L.hp, shield: L.shield, ammo: L.slots[L.slotI], reserve: L.ammo,
+        heals: L.heals, slots: L.slots, slotI: L.slotI,
+        alive: this.players.filter((p) => !p.dead).length, kills: L.kills,
+        zone: `Starting in ${Math.max(0, Math.ceil(this.lobbyT))}`,
+        dropping: false, reloading: false, healing: null, interact: null, lobby: true,
+      });
+    }
+    if (this.lobbyT <= 0) this.startPlane();
+  }
+
   // ---------- per-frame ----------
   update(dt) {
     this.time += dt;
+    if (this.phase === 'lobby') { this.updateLobby(dt); return; }
     // plane
     const pl = this.plane;
+    this.peaceT = Math.max(0, this.peaceT - dt);
     if (pl.active) {
       pl.t += dt;
       pl.x += pl.dx * pl.speed * dt; pl.y += pl.dy * pl.speed * dt;
       for (const p of this.players) if (p.dropping) { p.x = pl.x; p.y = pl.y; }
-      // auto-drop bots over time
+      // auto-drop bots over time — scattered across the map
       for (const p of this.players) {
         if (!p.dropping || p === this.local) continue;
-        if ((p.dropAt !== undefined && pl.t > p.dropAt) || Math.hypot(pl.x - WORLD_SIZE / 2, pl.y - WORLD_SIZE / 2) < 500 || pl.t > 11) {
-          p.dropping = false; p.dropAnim = 1.4;
-          p.x += rand(-30, 30); p.y += rand(-30, 30);
-          p.x = clamp(p.x, 60, WORLD_SIZE - 60); p.y = clamp(p.y, 60, WORLD_SIZE - 60);
+        if ((p.dropAt !== undefined && pl.t > p.dropAt) || pl.t > 12.5) {
+          p.dropping = false; p.chute = CHUTE_TIME;
+          p.x = clamp(p.x + rand(-380, 380), 60, WORLD_SIZE - 60);
+          p.y = clamp(p.y + rand(-380, 380), 60, WORLD_SIZE - 60);
         }
       }
       if (pl.t > 14 || Math.hypot(pl.x - pl.ex, pl.y - pl.ey) < 60) {
         pl.active = false;
-        for (const p of this.players) if (p.dropping) { p.dropping = false; p.dropAnim = 1.2; }
+        for (const p of this.players) {
+          if (!p.dropping) continue;
+          p.dropping = false; p.chute = CHUTE_TIME;
+          p.x = clamp(p.x + rand(-200, 200), 60, WORLD_SIZE - 60);
+          p.y = clamp(p.y + rand(-200, 200), 60, WORLD_SIZE - 60);
+        }
+        this.phase = 'play';
+        if (this.peaceT > 0) this.centerMsg('Grace period — bots hold fire!', 2.5);
+        else this.centerMsg('Fight!', 2);
       }
+    } else if (this.phase === 'plane') {
+      this.phase = 'play';
     }
 
-    // gas
-    const g = this.gas, ph = GAS_PHASES[Math.min(g.phase, GAS_PHASES.length - 1)];
-    g.t -= dt;
-    if (g.state === 'waiting') {
-      g.dps = 0;
-      if (g.t <= 0) { g.state = 'shrinking'; g.t = ph.shrink; g.fx = g.x; g.fy = g.y; g.fr = g.r; this.centerMsg('Zone shrinking!', 2); sfx.gas(); }
-    } else {
-      const total = ph.shrink, k = 1 - Math.max(0, g.t) / total;
-      g.x = lerp(g.fx, g.tx, k); g.y = lerp(g.fy, g.ty, k); g.r = lerp(g.fr, g.tr, k);
-      g.dps = ph.dps;
-      if (g.t <= 0) {
-        g.phase = Math.min(g.phase + 1, GAS_PHASES.length - 1);
-        const nph = GAS_PHASES[g.phase];
-        g.state = 'waiting'; g.t = nph.wait;
-        this._nextGasTarget();
+    // gas (only once everyone is on the ground)
+    if (this.phase === 'play') {
+      this.peaceT = Math.max(0, this.peaceT - dt);
+      const g = this.gas, ph = GAS_PHASES[Math.min(g.phase, GAS_PHASES.length - 1)];
+      g.t -= dt;
+      if (g.state === 'waiting') {
+        g.dps = 0;
+        if (g.t <= 0) { g.state = 'shrinking'; g.t = ph.shrink; g.fx = g.x; g.fy = g.y; g.fr = g.r; this.centerMsg('Zone shrinking!', 2); sfx.gas(); }
+      } else {
+        const total = ph.shrink, k = 1 - Math.max(0, g.t) / total;
+        g.x = lerp(g.fx, g.tx, k); g.y = lerp(g.fy, g.ty, k); g.r = lerp(g.fr, g.tr, k);
+        g.dps = ph.dps;
+        if (g.t <= 0) {
+          g.phase = Math.min(g.phase + 1, GAS_PHASES.length - 1);
+          const nph = GAS_PHASES[g.phase];
+          g.state = 'waiting'; g.t = nph.wait;
+          this._nextGasTarget();
+        }
       }
     }
 
@@ -495,7 +599,14 @@ export class Game {
     for (const p of this.players) {
       if (p.dead) continue;
       if (p.dropping) continue;
-      if (p.dropAnim > 0) p.dropAnim -= dt;
+      if (p.chute > 0) {
+        p.chute -= dt;
+        if (p.chute <= 0) {
+          p.chute = 0;
+          for (let i = 0; i < 8; i++) this.particles.push({ x: p.x + rand(-14, 14), y: p.y + rand(-10, 10), vx: rand(-40, 40), vy: rand(-40, 40), t: 0.4, max: 0.4, c: '#d9cfae', r: 4 });
+          if (p === this.local) { this.centerMsg('Landed — loot up!', 1.6); sfx.pickup(); }
+        }
+      }
       p.shootCd -= dt; p.reloadT -= dt;
       // healing
       if (p.healing) {
@@ -521,7 +632,7 @@ export class Game {
       if (p.reloadT > 0 && slot && !slot._reloading) slot._reloading = true;
 
       const n = Math.hypot(p.input.mx, p.input.my);
-      let sp = p.speed * (p.healing ? 0.45 : 1) * (slot && WEAPONS[slot.gun].len > 36 ? 0.94 : 1);
+      let sp = p.speed * (p.healing ? 0.45 : 1) * (p.chute > 0 ? 0.5 : 1) * (slot && WEAPONS[slot.gun].len > 36 ? 0.94 : 1);
       // pond slow
       if (this.inPond(p.x, p.y)) sp *= 0.75;
       if (n > 0.01) {
@@ -533,8 +644,8 @@ export class Game {
       p.y = clamp(p.y + p.vy * dt, 20, WORLD_SIZE - 20);
       this.collide(p);
       // gas dps
-      if (this.isOutsideGas(p.x, p.y) && g.dps > 0) {
-        p.hp -= g.dps * dt;
+      if (this.phase === 'play' && this.isOutsideGas(p.x, p.y) && this.gas.dps > 0) {
+        p.hp -= this.gas.dps * dt;
         p.lastDmgFrom = null;
         if (p.hp <= 0) this.kill(p, p.lastDmgFrom);
       }
@@ -555,9 +666,9 @@ export class Game {
       const step = Math.hypot(b.vx, b.vy) * dt;
       b.x += b.vx * dt; b.y += b.vy * dt; b.traveled += step;
       let dead = b.traveled > b.range || b.x < 0 || b.y < 0 || b.x > WORLD_SIZE || b.y > WORLD_SIZE;
-      if (!dead && this.hitObstacle(b.x, b.y)) {
-        const o = this.hitObstacle(b.x, b.y);
-        this.damageObstacle(o, b.dmg, this.players.find((p) => p.id === b.from));
+      const hit = !dead ? this.hitObstacle(b.x, b.y) : null;
+      if (hit) {
+        this.damageObstacle(hit, b.dmg, this.players.find((p) => p.id === b.from));
         this.particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, t: 0.12, max: 0.12, c: '#fff', r: 3 });
         dead = true;
       }
@@ -588,7 +699,7 @@ export class Game {
 
     // camera follows local
     if (L) {
-      const zoom = this.baseZoom * (L.dropAnim > 0 ? 0.7 : 1);
+      const zoom = this.baseZoom * (L.chute > 0 ? 0.75 : 1);
       this.cam.zoom = lerp(this.cam.zoom || zoom, zoom, Math.min(1, dt * 4));
       this.cam.x = lerp(this.cam.x, L.x - this.cv.width / this.cam.zoom / 2, Math.min(1, dt * 8));
       this.cam.y = lerp(this.cam.y, L.y - this.cv.height / this.cam.zoom / 2, Math.min(1, dt * 8));
@@ -598,13 +709,11 @@ export class Game {
     this.snapT -= dt;
     if (this.onHud && L) {
       const alive = this.players.filter((p) => !p.dead).length;
-      const ph2 = GAS_PHASES[Math.min(this.gas.phase, GAS_PHASES.length - 1)];
-      const zt = this.gas.state === 'waiting' ? `Starting in ${Math.ceil(this.gas.t)}` : `Shrinking! ${Math.ceil(this.gas.t)}s`;
       this.onHud({
         hp: L.hp, shield: L.shield, ammo: L.slots[L.slotI], reserve: L.ammo,
         heals: L.heals, slots: L.slots, slotI: L.slotI, alive, kills: L.kills,
-        zone: zt, dropping: L.dropping, reloading: L.reloadT > 0, healing: L.healing,
-        interact: this.nearestLoot(L, 80),
+        zone: this.zoneText(), dropping: L.dropping || L.chute > 0, reloading: L.reloadT > 0, healing: L.healing,
+        interact: this.phase === 'play' && L.chute <= 0 ? this.nearestLoot(L, 80) : null,
       });
     }
     if (this.net && this.net.isHost && this.snapT <= 0) {
@@ -613,12 +722,21 @@ export class Game {
     }
   }
 
+  zoneText() {
+    if (this.phase === 'lobby') return `Starting in ${Math.max(0, Math.ceil(this.lobbyT))}`;
+    if (this.phase === 'plane') return 'Jump! SPACE / F';
+    const zt = this.gas.state === 'waiting' ? `Zone in ${Math.ceil(this.gas.t)}` : `Shrinking! ${Math.ceil(this.gas.t)}s`;
+    return this.peaceT > 0 ? `🕊️ Grace ${Math.ceil(this.peaceT)} • ${zt}` : zt;
+  }
+
   snapshot() {
     return {
       seed: this.seed,
       t: this.time,
       gas: this.gas,
-      players: this.players.map((p) => ({ id: p.id, name: p.name, x: p.x | 0, y: p.y | 0, hp: p.hp | 0, shield: p.shield | 0, gun: p.gun, rarity: p.slots[p.slotI]?.rarity || 0, face: +p.faceAngle.toFixed(2), dead: p.dead, dropping: p.dropping, team: p.team, kills: p.kills })),
+      phase: this.phase,
+      phaseStr: this.zoneText(),
+      players: this.players.map((p) => ({ id: p.id, name: p.name, x: p.x | 0, y: p.y | 0, hp: p.hp | 0, shield: p.shield | 0, gun: p.gun, rarity: p.slots[p.slotI]?.rarity || 0, face: +p.faceAngle.toFixed(2), dead: p.dead, dropping: p.dropping, chute: p.chute > 0 ? 1 : 0, team: p.team, kills: p.kills })),
       bullets: this.bullets.slice(-60).map((b) => ({ x: b.x | 0, y: b.y | 0, vx: b.vx | 0, vy: b.vy | 0 })),
       taken: [...this.takenIds].slice(-500),
     };
@@ -627,6 +745,7 @@ export class Game {
   applySnapshot(s) {
     this.remoteSnap = s;
     if (s.gas) this.gas = s.gas;
+    if (s.phase) this.phase = s.phase;
     // mark taken loot
     if (s.taken) for (const id of s.taken) {
       const l = this.loot.find((x) => x.id === id);
@@ -643,7 +762,7 @@ export class Game {
         this.players.push(p);
       }
       p.x = sp.x; p.y = sp.y; p.hp = sp.hp; p.shield = sp.shield; p.gun = sp.gun;
-      p.faceAngle = sp.face; p.dead = sp.dead; p.dropping = sp.dropping; p.kills = sp.kills;
+      p.faceAngle = sp.face; p.dead = sp.dead; p.dropping = sp.dropping; p.chute = sp.chute ? 1 : 0; p.kills = sp.kills;
     }
     this.bullets = (s.bullets || []).map((b) => ({ ...b, dmg: 0, range: 300, traveled: 0, from: -1 }));
     // camera on local-by-name
@@ -661,12 +780,12 @@ export class Game {
       if (this.keys['a']) mx -= 1; if (this.keys['d']) mx += 1;
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
-      this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0 }, { name: this.local.name });
+      this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']) }, { name: this.local.name });
     }
     for (let i = this.particles.length - 1; i >= 0; i--) { this.particles[i].t -= dt; if (this.particles[i].t <= 0) this.particles.splice(i, 1); }
     if (this.onHud) {
       const alive = this.players.filter((p) => !p.dead).length;
-      this.onHud({ hp: 100, shield: 0, slots: [], slotI: 0, alive, kills: 0, zone: 'Online', remote: true });
+      this.onHud({ hp: 100, shield: 0, slots: [], slotI: 0, alive, kills: 0, zone: (this.remoteSnap && this.remoteSnap.phaseStr) || 'Online', remote: true });
     }
   }
 
@@ -755,6 +874,29 @@ export class Game {
       this.drawLoot(l);
     }
 
+    // lobby plaza
+    if (this.lobby && this.phase === 'lobby') {
+      const lb = this.lobby;
+      ctx.fillStyle = '#c9b183';
+      ctx.fillRect(lb.x, lb.y, lb.w, lb.h);
+      ctx.fillStyle = '#8a6d3b';
+      for (let fx = lb.x; fx <= lb.x + lb.w; fx += 64) {
+        ctx.fillRect(fx - 4, lb.y - 4, 8, 8);
+        ctx.fillRect(fx - 4, lb.y + lb.h - 4, 8, 8);
+      }
+      for (let fy = lb.y; fy <= lb.y + lb.h; fy += 64) {
+        ctx.fillRect(lb.x - 4, fy - 4, 8, 8);
+        ctx.fillRect(lb.x + lb.w - 4, fy - 4, 8, 8);
+      }
+      ctx.strokeStyle = '#7a5c2e'; ctx.lineWidth = 4;
+      ctx.strokeRect(lb.x, lb.y, lb.w, lb.h);
+      ctx.font = 'bold 36px sans-serif'; ctx.textAlign = 'center';
+      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeText('🎪 LOBBY', lb.x + lb.w / 2, lb.y + 64);
+      ctx.fillStyle = '#5c4a20';
+      ctx.fillText('🎪 LOBBY', lb.x + lb.w / 2, lb.y + 64);
+    }
+
     // obstacles
     for (const o of this.obstacles) {
       if (o.destroyed) continue;
@@ -763,7 +905,20 @@ export class Game {
       this.drawObstacle(o);
     }
 
+    // POI name labels
+    if (this.compounds) {
+      ctx.textAlign = 'center'; ctx.font = 'bold 17px sans-serif';
+      for (const c of this.compounds) {
+        if (c.x < vx0 || c.x > vx1 || c.y < vy0 || c.y > vy1) continue;
+        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeText(c.name, c.x, c.y - c.h / 2 - 12);
+        ctx.fillStyle = 'rgba(30,60,20,0.9)';
+        ctx.fillText(c.name, c.x, c.y - c.h / 2 - 12);
+      }
+    }
+
     // bullets
+    ctx.lineCap = 'round';
     ctx.lineCap = 'round';
     for (const b of this.bullets) {
       ctx.strokeStyle = '#fff8';
@@ -878,9 +1033,9 @@ export class Game {
       ctx.beginPath(); ctx.ellipse(o.x, o.y + o.r * 0.7, o.r, o.r * 0.35, 0, 0, 7); ctx.fill();
       ctx.fillStyle = '#5a3a1a';
       ctx.beginPath(); ctx.arc(o.x, o.y, o.r * 0.28, 0, 7); ctx.fill();
-      ctx.fillStyle = '#2f7a24';
+      ctx.fillStyle = o.pine ? '#1d4d18' : '#2f7a24';
       ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, 7); ctx.fill();
-      ctx.fillStyle = '#3f9c33';
+      ctx.fillStyle = o.pine ? '#2f7a24' : '#3f9c33';
       ctx.beginPath(); ctx.arc(o.x - o.r * 0.25, o.y - o.r * 0.25, o.r * 0.6, 0, 7); ctx.fill();
     } else if (o.type === 'rock' || o.type === 'rocksmall') {
       ctx.fillStyle = '#7a7a7a';
@@ -924,8 +1079,18 @@ export class Game {
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(p.x, p.y + 16, 18, 7, 0, 0, 7); ctx.fill();
     // body
-    const scale = p.dropAnim > 0 ? 1 + p.dropAnim * 0.8 : 1;
+    const scale = p.chute > 0 ? 1 + p.chute * 0.06 : 1;
     ctx.save(); ctx.translate(p.x, p.y); ctx.scale(scale, scale);
+    // parachute canopy while descending — no shooting until landing
+    if (p.chute > 0) {
+      const cw = 30 + p.chute * 7;
+      ctx.strokeStyle = '#7a1f1f'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-cw + 4, -36); ctx.lineTo(-8, -6); ctx.moveTo(cw - 4, -36); ctx.lineTo(8, -6); ctx.stroke();
+      ctx.fillStyle = '#e14b4b';
+      ctx.beginPath(); ctx.ellipse(0, -38, cw, cw * 0.45, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.ellipse(0, -38, cw * 0.38, cw * 0.45, 0, Math.PI, 0); ctx.fill();
+    }
     // hands + gun
     const ga = Math.atan2(p.aimY - p.y, p.aimX - p.x);
     const slot = p.slots[p.slotI];
@@ -983,7 +1148,7 @@ export class Game {
     ctx.beginPath(); ctx.arc(p.x, p.y - 24, 22, 3.14, 0); ctx.fill();
     ctx.strokeStyle = '#234a7a'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(p.x - 22, p.y - 24); ctx.lineTo(p.x, p.y); ctx.moveTo(p.x + 22, p.y - 24); ctx.lineTo(p.x, p.y); ctx.stroke();
-    this.drawPlayer({ ...p, dropping: false, dropAnim: 0 });
+    this.drawPlayer({ ...p, dropping: false, chute: 0 });
     ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
     if (p === this.local) ctx.fillText('SPACE / F to drop!', p.x, p.y - 52);
   }

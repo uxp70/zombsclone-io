@@ -1,4 +1,4 @@
-import { WORLD_SIZE, LOOT_TABLE, rand, randi, pick } from './config.js?v=111';
+import { WORLD_SIZE, LOOT_TABLE, rand, randi, pick } from './config.js?v=112';
 
 let uid = 1;
 export function nid() { return uid++; }
@@ -24,17 +24,21 @@ export function generateWorld(seed = (Math.random() * 1e9) | 0) {
 
   // Ponds (non-solid decor, slow)
   const ponds = [];
-  for (let i = 0; i < 7; i++) ponds.push({ x: RR(300, S - 300), y: RR(300, S - 300), r: RR(90, 170) });
+  for (let i = 0; i < 11; i++) ponds.push({ x: RR(300, S - 300), y: RR(300, S - 300), r: RR(90, 190) });
 
   // Roads (decor)
   const roads = [
     { x: 0, y: S * 0.5 - 40, w: S, h: 80, vert: false },
     { x: S * 0.5 - 40, y: 0, w: 80, h: S, vert: true },
+    { x: 0, y: S * 0.24 - 30, w: S, h: 60, vert: false },
+    { x: S * 0.74 - 30, y: 0, w: 60, h: S, vert: true },
   ];
+
+  const POI_NAMES = ['Mansion', 'Lab', 'Farm', 'Factory', 'Docks', 'Castle', 'Village', 'Observatory', 'Prison', 'Mall', 'Airport', 'School', 'Stadium', 'Church'];
 
   // Compounds / buildings (walls + crates inside) — like lab / houses
   const compounds = [];
-  const nComp = 9;
+  const nComp = 13;
   for (let i = 0; i < nComp; i++) {
     const cx = RR(500, S - 500), cy = RR(500, S - 500);
     const w = RR(220, 420), h = RR(220, 380);
@@ -57,7 +61,7 @@ export function generateWorld(seed = (Math.random() * 1e9) | 0) {
     walls.push({ type: 'wall', x: cx + w / 2 - t, y: cy - h / 2, w: t, h: h * g4 - gw / 2, hp: 120 });
     walls.push({ type: 'wall', x: cx + w / 2 - t, y: cy - h / 2 + h * g4 + gw / 2, w: t, h: h - (h * g4 + gw / 2), hp: 120 });
     for (const wl of walls) { wl.id = nid(); obstacles.push(wl); }
-    compounds.push({ x: cx, y: cy, w, h });
+    compounds.push({ x: cx, y: cy, w, h, name: POI_NAMES[i % POI_NAMES.length] });
     // loot + crates inside
     const nIn = randi(4, 7);
     for (let k = 0; k < nIn; k++) {
@@ -68,12 +72,14 @@ export function generateWorld(seed = (Math.random() * 1e9) | 0) {
   }
 
   // Scatter: trees / rocks / crates / barrels / bushes
-  const N = 520;
+  // density varies by quadrant for a less uniform look
+  const N = 900;
   for (let i = 0; i < N; i++) {
     const x = RR(80, S - 80), y = RR(80, S - 80);
     const roll = R();
-    if (roll < 0.34) obstacles.push({ id: nid(), type: 'tree', x, y, r: RR(22, 42), hp: 80, solid: true });
-    else if (roll < 0.52) obstacles.push({ id: nid(), type: 'rock', x, y, r: RR(18, 38), hp: 120, solid: true });
+    const rocky = (x > S * 0.6 && y < S * 0.4) ? 0.12 : 0; // rocky NE corner
+    if (roll < 0.34 - rocky) obstacles.push({ id: nid(), type: 'tree', x, y, r: RR(22, 46), hp: 80, solid: true, pine: x < S * 0.45 && y > S * 0.55 });
+    else if (roll < 0.52) obstacles.push({ id: nid(), type: 'rock', x, y, r: RR(18, 42), hp: 120, solid: true });
     else if (roll < 0.66) obstacles.push({ id: nid(), type: 'crate', x, y, r: 22, hp: 60, solid: true });
     else if (roll < 0.76) obstacles.push({ id: nid(), type: 'barrel', x, y, r: 18, hp: 40, solid: true });
     else if (roll < 0.9) obstacles.push({ id: nid(), type: 'bush', x, y, r: RR(20, 30), hp: 20, solid: false });
@@ -81,9 +87,9 @@ export function generateWorld(seed = (Math.random() * 1e9) | 0) {
   }
 
   // Ground loot scattered
-  for (let i = 0; i < 260; i++) loot.push(makeLoot(RR(100, S - 100), RR(100, S - 100), R));
+  for (let i = 0; i < 430; i++) loot.push(makeLoot(RR(100, S - 100), RR(100, S - 100), R));
   // Heals / ammo top-up
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 260; i++) {
     const r = R();
     const x = RR(100, S - 100), y = RR(100, S - 100);
     if (r < 0.4) loot.push({ id: nid(), kind: 'heal', heal: 'bandage', x, y });

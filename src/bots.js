@@ -1,10 +1,30 @@
-import { BOT_CHATS, WEAPONS, RARITIES, rand, pick, dist2, clamp, angleLerp } from './config.js?v=111';
+import { BOT_CHATS, WEAPONS, RARITIES, rand, pick, dist2, clamp, angleLerp } from './config.js?v=112';
 
 // Lightweight FSM bot: loot → fight → rotate to zone → heal. Adds chat + human-like error.
 export function makeBotController(bot, game) {
   return {
     bot,
     thinkT: Math.random() * 0.5,
+    lobbyGoal: null,
+    lobbyAct(dt) {
+      const g = game, p = this.bot;
+      this.thinkT -= dt;
+      if (this.thinkT <= 0) {
+        this.thinkT = rand(0.6, 1.8);
+        this.lobbyGoal = {
+          x: rand(g.lobby.x + 60, g.lobby.x + g.lobby.w - 60),
+          y: rand(g.lobby.y + 60, g.lobby.y + g.lobby.h - 60),
+        };
+        if (Math.random() < 0.35 && g.onChat) g.onChat(p, pick(BOT_CHATS));
+      }
+      const gl = this.lobbyGoal || { x: p.x, y: p.y };
+      const a = Math.atan2(gl.y - p.y, gl.x - p.x);
+      const go = Math.hypot(gl.x - p.x, gl.y - p.y) > 30 ? 1 : 0;
+      p.input.mx = Math.cos(a) * go; p.input.my = Math.sin(a) * go;
+      p.input.shoot = false;
+      p.faceAngle = angleLerp(p.faceAngle, a, Math.min(1, dt * 8));
+      p.aimX = p.x + Math.cos(a) * 100; p.aimY = p.y + Math.sin(a) * 100;
+    },
     targetLoot: null,
     wanderA: Math.random() * Math.PI * 2,
     strafeDir: Math.random() < 0.5 ? 1 : -1,
@@ -15,6 +35,7 @@ export function makeBotController(bot, game) {
       const g = game;
       const p = bot;
       if (p.dead) return;
+      if (g.phase === 'lobby') { this.lobbyAct(dt); return; }
       this.thinkT -= dt;
       this.chatT -= dt;
       this.strafeT -= dt;
@@ -25,7 +46,12 @@ export function makeBotController(bot, game) {
       }
 
       // Perception
-      const enemy = nearestEnemy(g, p, 850);
+      let enemy = nearestEnemy(g, p, 850);
+      // grace period: bots hold fire unless retaliating against their attacker
+      if (enemy && g.peaceT > 0) {
+        const retaliate = p.lastDmgFrom === enemy && (g.time - (p.lastDmgT || -99)) < 6;
+        if (!retaliate) enemy = null;
+      }
       const inGas = g.isOutsideGas(p.x, p.y);
       const zone = { x: g.gas.tx, y: g.gas.ty, r: g.gas.tr };
       const zoneD = Math.hypot(p.x - zone.x, p.y - zone.y);

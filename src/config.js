@@ -1,5 +1,9 @@
 // Shared tuning — ZombsRoyale.io-like values
-export const WORLD_SIZE = 4200;
+export const WORLD_SIZE = 6000;
+
+export const LOBBY_TIME = 12;   // pre-match lobby countdown (s)
+export const GRACE_TIME = 22;   // bots hold fire after landing (s)
+export const CHUTE_TIME = 3.2;  // parachute descent after jumping (s)
 
 export const RARITIES = [
   { id: 0, name: 'Common',    color: '#b8b8b8', mult: 1.0 },

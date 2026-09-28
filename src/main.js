@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=111';
-import { P2PNet } from './net.js?v=111';
-import { WEAPONS } from './config.js?v=111';
-import { sfx } from './audio.js?v=111';
-import { auth } from './auth.js?v=111';
-window.__ZC_BUILD = 'v111';
+import { Game } from './game.js?v=112';
+import { P2PNet } from './net.js?v=112';
+import { WEAPONS } from './config.js?v=112';
+import { sfx } from './audio.js?v=112';
+import { auth } from './auth.js?v=112';
+window.__ZC_BUILD = 'v112';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -24,8 +24,8 @@ document.querySelectorAll('.mode').forEach((b) => {
 });
 
 function botCountFor() {
-  // keep perf sane: 70 solo, fewer with real players expected
-  return mode === 'solo' ? 75 : mode === 'duo' ? 60 : 55;
+  // bigger 6000px map supports bigger lobbies
+  return mode === 'solo' ? 90 : mode === 'duo' ? 70 : 60;
 }
 
 function showGameUI() {
@@ -206,6 +206,7 @@ $('createBtn').onclick = async () => {
       p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
       p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
       p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
+      if (input.drop && p.dropping) game.tryDrop(p);
     };
     net.onMember = (n) => { $('roomInfo').textContent = `Room ${code} — ${n} friend(s) connected (+bots).`; };
     net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
@@ -229,7 +230,7 @@ $('joinBtn').onclick = async () => {
     // local pseudo player for camera/identity
     game.local = { name, x: 2100, y: 2100 };
     // build a stub world so map renders before first snapshot
-    const { generateWorld } = await import('./world.js?v=111');
+    const { generateWorld } = await import('./world.js?v=112');
     const w = generateWorld(12345);
     game.obstacles = w.obstacles; game.loot = w.loot; game.ponds = w.ponds; game.roads = w.roads;
     game.gas = { x: 2100, y: 2100, r: 2500, tx: 2100, ty: 2100, tr: 1500 };

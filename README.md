@@ -29,8 +29,9 @@ Mobile: left-half virtual stick moves, right-half aims + fires.
 
 - Grid grass, roads, ponds (slow), trees/rocks/crates/barrels/bushes, walled compounds with door gaps
 - Loot tiers Common→Legendary (gray/green/blue/purple/gold) × Pistol/SMG/Shotgun/AR/Burst/LMG/Sniper + ammo/heals/shield
-- Plane flyover + parachute drop, shrinking gas circles with wait/shrink phases + DPS ramp, killfeed, alive counter, minimap, HP/shield bar, weapon slots, chat bubbles
-- Bots: loot scoring, zone rotation, strafing, range-keeping, miss-skill, healing, crate-breaking, random chat (`weird flex but ok`, `oof`, …)
+- Pre-match **lobby plaza** with countdown, plane flyover, steerable **parachute** (no shooting until you land), 🕊️ **grace period** where bots hold fire (they still retaliate), shrinking gas circles
+- 6000px map with 13 named POIs (Mansion, Lab, Farm…), pine forests, rocky corner, 900+ obstacles
+- Bots: scatter-drop across the map, loot scoring, zone rotation, strafing, range-keeping, miss-skill, healing, crate-breaking, random chat (`weird flex but ok`, `oof`, …)
 - Procedural WebAudio SFX (no assets)
 
 ## Accounts (login system)
