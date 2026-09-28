@@ -121,7 +121,15 @@ export class P2PNet {
 
   // host → all
   broadcastSnap(snap) {
-    for (const [, c] of this.conns) { try { if (c.open) c.send({ t: 'snap', snap }); } catch { } }
+    const msg = { t: 'snap', snap };
+    let warned = false;
+    for (const [, c] of this.conns) {
+      try {
+        if (c.open) c.send(msg);
+      } catch (err) {
+        if (!warned) { warned = true; console.warn('[net] snapshot send failed:', err && err.message); }
+      }
+    }
   }
   broadcastChat(name, text) {
     for (const [, c] of this.conns) { try { if (c.open) c.send({ t: 'chat', name, text }); } catch { } }

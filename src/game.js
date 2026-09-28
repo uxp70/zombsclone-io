@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=117';
-import { generateWorld } from './world.js?v=117';
-import { makeBotController } from './bots.js?v=117';
-import { sfx } from './audio.js?v=117';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=118';
+import { generateWorld } from './world.js?v=118';
+import { makeBotController } from './bots.js?v=118';
+import { sfx } from './audio.js?v=118';
 
 let PID = 1;
 
@@ -821,7 +821,7 @@ export class Game {
       });
     }
     if (this.net && this.net.isHost && this.snapT <= 0) {
-      this.snapT = 1 / 12;
+      this.snapT = 1 / 10;
       this.net.broadcastSnap(this.snapshot());
     }
   }
@@ -834,6 +834,8 @@ export class Game {
   }
 
   snapshot() {
+    // kept small on purpose: oversized DataChannel messages get dropped
+    // (notably ~16KB caps) while tiny ones like 'start' still arrive
     return {
       seed: this.seed,
       t: this.time,
@@ -841,16 +843,17 @@ export class Game {
       phase: this.phase,
       phaseStr: this.zoneText(),
       players: this.players.map((p) => ({ id: p.id, name: p.name, x: p.x | 0, y: p.y | 0, hp: p.hp | 0, shield: p.shield | 0, gun: p.gun, rarity: p.slots[p.slotI]?.rarity || 0, face: +p.faceAngle.toFixed(2), dead: p.dead, dropping: p.dropping, chute: p.chute > 0 ? 1 : 0, team: p.team, kills: p.kills })),
-      bullets: this.bullets.slice(-60).map((b) => ({ x: b.x | 0, y: b.y | 0, vx: b.vx | 0, vy: b.vy | 0, gun: b.gun, splash: b.splash ? 1 : 0 })),
-      taken: [...this.takenIds].slice(-500),
+      bullets: this.bullets.slice(-24).map((b) => ({ x: b.x | 0, y: b.y | 0, vx: b.vx | 0, vy: b.vy | 0, gun: b.gun, splash: b.splash ? 1 : 0 })),
+      taken: [...this.takenIds].slice(-120),
       opened: [...this.openedIds],
-      fresh: this.loot.slice(-30),
+      fresh: this.loot.slice(-8),
       lobby: this.lobby,
     };
   }
 
   applySnapshot(s) {
     this.remoteSnap = s;
+    this.lastSnapT = performance.now();
     if (s.gas) this.gas = s.gas;
     if (s.phase) this.phase = s.phase;
     // adopt the host's world (deterministic ids per seed keep loot in sync)
@@ -922,7 +925,9 @@ export class Game {
     }
     if (this.onHud) {
       const alive = this.players.filter((p) => !p.dead).length;
-      this.onHud({ hp: 100, shield: 0, slots: [], slotI: 0, alive, kills: 0, zone: (this.remoteSnap && this.remoteSnap.phaseStr) || 'Online', remote: true });
+      let zone = (this.remoteSnap && this.remoteSnap.phaseStr) || 'Online';
+      if (!this.remoteSnap || performance.now() - (this.lastSnapT || 0) > 3000) zone = '🛰️ Waiting for host…';
+      this.onHud({ hp: 100, shield: 0, slots: [], slotI: 0, alive, kills: 0, zone, remote: true });
     }
   }
 
@@ -1253,9 +1258,9 @@ export class Game {
       ctx.restore();
     }
 
-    // gas overlay: darken outside circle (not in the pre-match lobby)
+    // gas overlay: darken outside circle (only once fighting on the ground)
     const g = this.gas;
-    if (g && this.phase !== 'lobby') {
+    if (g && this.phase === 'play') {
       ctx.save();
       ctx.beginPath();
       ctx.rect(vx0 - 500, vy0 - 500, (vx1 - vx0) + 1000, (vy1 - vy0) + 1000);
