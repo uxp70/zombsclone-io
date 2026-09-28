@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>ZombsClone.io — 2D Battle Royale</title>
+<meta name="description" content="Open-source ZombsRoyale.io clone: solo + P2P online with bots, shrinking gas, loot tiers, plane drops." />
+<link rel="stylesheet" href="styles.css" />
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="killfeed"></div>
+  <div id="topbar">
+    <div id="zoneTimer">Starting in 10</div>
+    <div id="aliveBox"><span id="aliveIcon">🎯</span> <span id="aliveCount">100</span> <span id="killCount">0 Kills</span></div>
+  </div>
+  <canvas id="minimap" width="170" height="170"></canvas>
+  <div id="interactTip" class="hidden">Press <b>E</b> to pick up</div>
+  <div id="centerMsg" class="hidden"></div>
+  <div id="bottombar">
+    <div id="playerCard"><div id="pname">Prodigy</div><div id="hpbar"><div id="hpfill"></div><div id="shieldfill"></div></div><div id="healRow"></div></div>
+    <div id="slots"></div>
+    <div id="ammoBox"><div id="ammoIcon">🎯</div><div id="ammoCount">∞</div><div id="nades">…</div></div>
+  </div>
+  <div id="chatLog"></div>
+  <div id="stickL" class="stick hidden"><div class="nub"></div></div>
+  <div id="stickR" class="stick hidden"><div class="nub"></div></div>
+</div>
+
+<!-- Menu -->
+<div id="menu">
+  <div class="menu-inner">
+    <h1>ZOMBS<span>CLONE</span>.IO</h1>
+    <p class="sub">Open-source battle royale • solo vs 99 bots • P2P online with friends</p>
+    <input id="nick" maxlength="14" placeholder="Enter name…" value="Prodigy" />
+    <div class="modes">
+      <button data-mode="solo" class="mode active">Solo</button>
+      <button data-mode="duo" class="mode">Duo</button>
+      <button data-mode="squad" class="mode">Squad (4)</button>
+    </div>
+    <button id="playBtn">PLAY</button>
+    <div class="friends">
+      <div class="fr-title">PLAY WITH FRIENDS — P2P ONLINE (no server needed)</div>
+      <div class="fr-row">
+        <button id="createBtn">Create Room</button>
+        <input id="roomCode" maxlength="6" placeholder="CODE" />
+        <button id="joinBtn">Join</button>
+      </div>
+      <div id="roomInfo">Solo = offline + 60–90 bots. Create/Join = real friends via WebRTC + bots fill gaps.</div>
+    </div>
+    <div class="help">
+      <div><b>WASD</b> move • <b>Mouse</b> aim • <b>Click/Space</b> shoot • <b>R</b> reload • <b>E</b> loot • <b>1-4</b> weapons • <b>Q</b> bandage • <b>X/E</b> medkit/shield • <b>M</b> big map</div>
+      <div>Drop from plane with <b>Space / F</b>. Stay inside the gas circle. Break crates for loot.</div>
+    </div>
+    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • canvas, no assets • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
+  </div>
+</div>
+
+<div id="deathScreen" class="hidden">
+  <div class="menu-inner">
+    <h2 id="deathTitle">#12 of 87</h2>
+    <p id="deathSub">Eliminated by xX_sniper_Xx</p>
+    <button id="againBtn">PLAY AGAIN</button>
+    <button id="menuBtn" class="ghost">MENU</button>
+  </div>
+</div>
+
+<div id="winBanner" class="hidden"><div id="winText">WINNER WINNER!</div><div id="winSub">#1 Victory Royale</div></div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#7ab648;font-family:"Segoe UI",Roboto,Arial,sans-serif;user-select:none;-webkit-user-select:none}
+#game{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:crosshair}
+.hidden{display:none!important}
+#menu,#deathScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,30,15,.55);backdrop-filter:blur(3px);z-index:20}
+.menu-inner{background:#20262b;color:#fff;border-radius:14px;padding:28px 30px;width:min(480px,92vw);text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5);border:1px solid #ffffff22}
+.menu-inner h1{margin:0;font-size:44px;letter-spacing:1px;font-weight:900;color:#ffd23f;text-shadow:0 3px 0 #7a4d00}
+.menu-inner h1 span{color:#7CFC00}
+.sub{opacity:.8;margin:6px 0 14px;font-size:13px}
+#nick{width:100%;padding:10px;border-radius:8px;border:none;font-size:18px;text-align:center;margin-bottom:12px}
+.modes{display:flex;gap:8px;margin-bottom:12px}
+.mode{flex:1;padding:10px;border:none;border-radius:8px;background:#39424a;color:#fff;font-weight:700;cursor:pointer}
+.mode.active{background:#ffd23f;color:#222}
+#playBtn{width:100%;padding:13px;font-size:22px;font-weight:900;border:none;border-radius:10px;background:linear-gradient(#8be000,#5da500);color:#fff;cursor:pointer;text-shadow:0 2px 0 #0006}
+#playBtn:hover{filter:brightness(1.1)}
+.friends{margin-top:14px;background:#ffffff14;border-radius:10px;padding:10px}
+.fr-title{font-size:12px;font-weight:800;color:#ffd23f;margin-bottom:8px}
+.fr-row{display:flex;gap:6px}
+.fr-row button{flex:1;padding:8px;border:none;border-radius:7px;font-weight:800;cursor:pointer;background:#4a90e2;color:#fff}
+.fr-row input{width:80px;text-align:center;text-transform:uppercase;font-weight:900;border-radius:7px;border:none}
+#roomInfo{font-size:12px;opacity:.75;margin-top:8px}
+.help{font-size:12px;opacity:.75;margin-top:12px;line-height:1.6}
+.foot{margin-top:10px;font-size:12px;opacity:.6}.foot a{color:#ffd23f}
+#deathScreen h2{margin:0;font-size:34px;color:#ffd23f}
+#againBtn{margin-top:14px;width:100%;padding:12px;font-weight:900;font-size:18px;border:none;border-radius:9px;background:#ffd23f;cursor:pointer}
+.ghost{margin-top:8px;width:100%;padding:9px;border-radius:9px;background:transparent;border:1px solid #fff5;color:#fff;cursor:pointer}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+#killfeed{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:4px;font-size:12px;max-width:44vw}
+.feed{background:rgba(0,0,0,.55);color:#fff;padding:4px 8px;border-radius:6px}
+.feed b{color:#ffd23f}
+#topbar{position:absolute;top:10px;left:50%;transform:translateX(-50%);text-align:center}
+#zoneTimer{background:rgba(0,0,0,.55);color:#fff;padding:5px 14px;border-radius:8px;font-weight:700;font-size:14px}
+#aliveBox{margin-top:6px;background:rgba(0,0,0,.45);display:inline-block;color:#fff;padding:4px 12px;border-radius:8px;font-weight:800}
+#killCount{color:#ffd23f;margin-left:8px}
+#minimap{position:absolute;top:10px;right:10px;border-radius:10px;border:2px solid #0008;background:#7ab648}
+#interactTip{position:absolute;left:50%;bottom:170px;transform:translateX(-50%);background:#000a;color:#fff;padding:6px 12px;border-radius:8px}
+#centerMsg{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);font-size:34px;font-weight:900;color:#fff;text-shadow:0 3px 0 #000,0 0 20px #000}
+#bottombar{position:absolute;bottom:10px;left:10px;right:10px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+#playerCard{color:#fff;text-shadow:0 1px 2px #000}
+#pname{font-weight:800;margin-bottom:4px}
+#hpbar{width:220px;height:16px;background:#0009;border-radius:8px;overflow:hidden;position:relative;border:1px solid #000}
+#hpfill{height:100%;width:100%;background:linear-gradient(#8be000,#5da500);transition:width .15s}
+#shieldfill{position:absolute;top:0;left:0;height:40%;width:0%;background:#4ad2ffaa}
+#healRow{display:flex;gap:6px;margin-top:6px}
+.heal{background:#000a;border:1px solid #fff3;color:#fff;border-radius:7px;padding:3px 8px;font-size:12px}
+#slots{display:flex;gap:8px;pointer-events:none}
+.slot{width:74px;height:58px;background:#0007;border:2px solid #ffffff33;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+.slot.active{border-color:#ffd23f;background:#000b}
+.slot .wicon{font-size:22px}
+#ammoBox{text-align:right;color:#fff;text-shadow:0 1px 2px #000;font-weight:800}
+#ammoCount{font-size:22px}
+#chatLog{position:absolute;left:12px;bottom:120px;display:flex;flex-direction:column;gap:4px;max-width:300px}
+.chat{background:#fff;color:#222;border-radius:8px;padding:4px 8px;font-size:12px;box-shadow:0 2px 6px #0005}
+.chat b{font-size:11px}
+#winBanner{position:fixed;left:0;right:0;bottom:60px;text-align:center;z-index:15;pointer-events:none}
+#winText{font-size:44px;font-weight:900;color:#ffd23f;text-shadow:0 4px 0 #7a4d00,0 0 30px #000}
+#winSub{color:#fff;font-weight:800;text-shadow:0 2px 0 #000}
+.stick{position:absolute;width:110px;height:110px;border-radius:50%;background:#ffffff22;border:2px solid #ffffff44}
+.stick .nub{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:#ffffffaa}
+#stickL{left:24px;bottom:90px}#stickR{right:24px;bottom:90px}
+@media(max-width:720px){#hpbar{width:140px}.slot{width:56px;height:48px}#minimap{width:110px;height:110px}}
