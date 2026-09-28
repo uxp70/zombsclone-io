@@ -10,7 +10,7 @@ export class P2PNet {
     this.peer = null; this.conns = new Map(); this.isHost = false;
     this.room = null; this.onSnapshot = null; this.onInput = null;
     this.onChatMsg = null; this.onMember = null; this.onDenied = null;
-    this.onLobby = null; this.onStart = null;
+    this.onLobby = null; this.onStart = null; this.onLeave = null;
     this.gameInfo = { started: false, seed: 0 };
   }
   get supported() { return typeof window !== 'undefined' && typeof window.Peer !== 'undefined'; }
@@ -84,7 +84,6 @@ export class P2PNet {
   _wireHostConn(conn) {
     conn.on('open', () => {
       this.conns.set(conn.peer, conn);
-      this.onMember && this.onMember(this._openConns());
     });
     conn.on('data', (msg) => {
       if (!msg) return;
@@ -102,7 +101,7 @@ export class P2PNet {
         if (this.gameInfo && this.gameInfo.started) conn.send({ t: 'start', seed: this.gameInfo.seed });
       }
     });
-    conn.on('close', () => { this.conns.delete(conn.peer); this.onMember && this.onMember(this._openConns()); });
+    conn.on('close', () => { this.conns.delete(conn.peer); this.onLeave && this.onLeave(conn.peer); this.onMember && this.onMember(this._openConns()); });
     conn.on('error', () => { });
   }
 

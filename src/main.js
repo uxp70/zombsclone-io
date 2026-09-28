@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=115';
-import { P2PNet } from './net.js?v=115';
-import { WEAPONS } from './config.js?v=115';
-import { sfx } from './audio.js?v=115';
-import { auth } from './auth.js?v=115';
-window.__ZC_BUILD = 'v115';
+import { Game } from './game.js?v=116';
+import { P2PNet } from './net.js?v=116';
+import { WEAPONS } from './config.js?v=116';
+import { sfx } from './audio.js?v=116';
+import { auth } from './auth.js?v=116';
+window.__ZC_BUILD = 'v116';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -120,7 +120,17 @@ game.onHud = (h) => {
   [...slots.children].forEach((el, i) => {
     const s = h.slots[i];
     el.classList.toggle('active', i === h.slotI);
-    el.querySelector('.wicon').textContent = s ? WEAPONS[s.gun].icon : '—';
+    const iconEl = el.querySelector('.wicon');
+    if (s && s.gun !== 'fists') {
+      const k = s.gun + ':' + (s.rarity || 0);
+      if (iconEl.dataset.k !== k) {
+        const url = game.gunIcon(s.gun, s.rarity || 0);
+        iconEl.innerHTML = url ? `<img src="${url}" alt="${s.gun}" />` : WEAPONS[s.gun].icon;
+        iconEl.dataset.k = k;
+      }
+    } else {
+      if (iconEl.dataset.k !== 'txt') { iconEl.textContent = s ? WEAPONS[s.gun].icon : '—'; iconEl.dataset.k = 'txt'; }
+    }
     const wname = s ? `${WEAPONS[s.gun].name}${s.magAmmo === Infinity ? '' : ` ${s.magAmmo}`}` : '';
     el.querySelector('.wname').textContent = wname;
     el.style.borderColor = s ? ['#b8b8b8', '#5dff5d', '#4aa8ff', '#c26bff', '#ffd23f'][s.rarity || 0] : '';
@@ -234,16 +244,36 @@ function openHumans() {
 
 function hostOnlineLobby(name, lobby) {
   net.gameInfo = { started: false, seed: 0 };
-  net.onMember = (n, hello) => {
-    game.feed(`<b>${escapeHtml((hello && hello.name) || 'Someone')}</b> joined the lobby`);
+  // member joins/leaves are counted silently by the interval below —
+  // feed messages only fire once per player when they actually enter the match
+  net.onMember = () => {};
+  net.onLeave = (peerId) => {
+    const i = game.players.findIndex((x) => x.remotePeer === peerId);
+    if (i >= 0) {
+      const p = game.players[i];
+      game.players.splice(i, 1);
+      if (game.running) game.feed(`<b>${escapeHtml(p.name)}</b> left`);
+    }
   };
   net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
+  wireHostSim(); // listen early so first inputs aren't missed
   let countdown = -1;
+  let aloneT = 0;
   onlineStatus(`Hosting lobby ${lobby} — waiting for players… (1 here)`);
   onlineTimer = setInterval(() => {
     if (onlineCancelled) { clearInterval(onlineTimer); onlineTimer = null; return; }
     const humans = openHumans();
-    if (humans >= 2 && countdown < 0) countdown = ONLINE_START_WAIT;
+    if (humans >= 2 && countdown < 0) { countdown = ONLINE_START_WAIT; aloneT = 0; }
+    if (humans < 2 && countdown < 0) {
+      aloneT += 0.5;
+      // nobody else showed: start with bots anyway, late joins still work
+      if (aloneT >= 45) {
+        clearInterval(onlineTimer); onlineTimer = null;
+        game.feed('No players found — starting with bots. Friends can still join mid-match!');
+        startOnlineMatch(name);
+        return;
+      }
+    }
     if (countdown >= 0) {
       countdown -= 0.5;
       onlineStatus(`Starting in ${Math.max(0, Math.ceil(countdown))}… (${humans} players)`);
@@ -253,7 +283,7 @@ function hostOnlineLobby(name, lobby) {
         return;
       }
     } else {
-      onlineStatus(`Waiting for players… (${humans} here) — match starts 30s after 2+ join.`);
+      onlineStatus(`Waiting for players… (${humans} here) — starts 30s after 2+ join, or with bots in ${Math.max(0, Math.ceil(45 - aloneT))}s.`);
     }
     net.broadcastLobby({ humans, countdown: Math.max(0, Math.ceil(countdown)), started: false });
   }, 500);
@@ -300,17 +330,33 @@ function startOnlineMatch(name) {
 
 function guestOnlineLobby(name, lobby) {
   onlineStatus(`Joined lobby ${lobby} — waiting for players…`);
+  let lastMsg = Date.now();
+  let started = false;
+  const heartbeat = setInterval(() => {
+    if (started || onlineCancelled) { clearInterval(heartbeat); return; }
+    if (Date.now() - lastMsg > 12000) {
+      clearInterval(heartbeat);
+      onlineIdle(); net.destroy(); showMenu();
+      onlineStatus(''); $('onlineBox').classList.remove('hidden');
+      $('onlineStatus').textContent = 'Lost connection to the lobby host. Hit 🌐 PLAY ONLINE to try again.';
+    }
+  }, 1000);
   net.onLobby = (m) => {
+    lastMsg = Date.now();
     if (m.countdown > 0) onlineStatus(`Starting in ${m.countdown}… (${m.humans} players)`);
     else onlineStatus(`Waiting for players… (${m.humans} here) — starts 30s after 2+ join.`);
   };
   net.onDenied = (reason) => {
+    started = true;
     onlineIdle(); net.destroy(); showMenu();
     onlineStatus(''); $('onlineBox').classList.remove('hidden');
     $('onlineStatus').textContent = 'Join denied: ' + reason;
   };
   net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
   net.onStart = (seed) => {
+    if (started || game.running) return; // ignore duplicate starts
+    started = true;
+    clearInterval(heartbeat);
     net.onSnapshot = (snap) => game.applySnapshot(snap);
     onlineIdle();
     showGameUI();

@@ -9,6 +9,7 @@
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
+<div id="bgDecor" aria-hidden="true"><span>🌳</span><span>📦</span><span>💛</span><span>🔫</span><span>🌳</span><span>📦</span><span>🪂</span><span>🌳</span></div>
 <canvas id="game"></canvas>
 
 <!-- HUD -->
@@ -36,7 +37,8 @@
 <div id="menu">
   <div class="menu-inner">
     <h1>ZOMBS<span>CLONE</span>.IO</h1>
-    <p class="sub">Open-source battle royale • solo vs 99 bots • P2P online with friends</p>
+    <div class="badges"><span>👥 100-player</span><span>🎁 Chest loot</span><span>🪂 Plane drops</span><span>🕊️ Grace zone</span></div>
+    <p class="sub">Open-source 2D battle royale — loot chests, dodge the gas, be the last one standing.</p>
     <div id="account">
       <div id="authForm">
         <div class="auth-grid">
@@ -60,24 +62,25 @@
     </div>
     <input id="nick" maxlength="14" placeholder="Enter name…" value="Prodigy" />
     <div class="modes">
-      <button data-mode="solo" class="mode active">Solo</button>
-      <button data-mode="duo" class="mode">Duo</button>
-      <button data-mode="squad" class="mode">Squad (4)</button>
+      <button data-mode="solo" class="mode active">👤 Solo</button>
+      <button data-mode="duo" class="mode">👥 Duo</button>
+      <button data-mode="squad" class="mode">👪 Squad</button>
     </div>
     <div class="play-row">
-      <button id="botsBtn">🤖 PLAY VS BOTS</button>
-      <button id="onlineBtn">🌐 PLAY ONLINE</button>
+      <button id="botsBtn">🤖 PLAY VS BOTS<small>offline • instant • up to 100 bots</small></button>
+      <button id="onlineBtn">🌐 PLAY ONLINE<small>real players • auto lobby • +bots</small></button>
     </div>
     <div id="onlineBox" class="hidden">
       <div id="onlineStatus">Searching…</div>
       <button id="cancelOnlineBtn">Cancel</button>
     </div>
-    <div class="modes-note">Solo/Duo/Squad apply to bots mode. Online is free-for-all: real players + bots, starts 30s after 2+ players join.</div>
-    <div class="help">
-      <div><b>WASD</b> move • <b>Mouse</b> aim • <b>Click/Space</b> shoot • <b>R</b> reload • <b>E</b> loot • <b>1-4</b> weapons • <b>Q</b> bandage • <b>X</b> shield/medkit • <b>M</b> big map • <b>Enter</b> chat</div>
-      <div>Drop from the plane with <b>Space / F</b>, steer your parachute with <b>WASD</b> — you can't shoot until you land. Guns come <b>only</b> from 🎁 basic and 💛 golden chests (press <b>E</b>) — check houses!</div>
-    </div>
-    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • <span id="buildTag">v115</span> • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
+    <div class="modes-note">Solo/Duo/Squad team sizes apply to bots mode. Online is free-for-all and starts 30s after 2+ players join (or with bots if you're alone).</div>
+    <details class="help">
+      <summary>How to play</summary>
+      <div><b>WASD</b> move • <b>Mouse</b> aim • <b>Click/Space</b> shoot • <b>R</b> reload • <b>E</b> open chests & loot • <b>1-4</b> weapons • <b>Q</b> bandage • <b>X</b> shield/medkit • <b>M</b> big map • <b>Enter</b> chat</div>
+      <div>Drop from the plane with <b>Space / F</b>, steer your parachute with <b>WASD</b> — you can't shoot until you land. Guns come <b>only</b> from 🎁 basic and 💛 golden chests — check houses!</div>
+    </details>
+    <div class="foot"><a href="https://github.com" id="repoLink" target="_blank">GitHub</a> • MIT • <span id="buildTag">v116</span> • inspired by ZombsRoyale.io (<a href="https://en.wikipedia.org/wiki/ZombsRoyale.io" target="_blank">wiki</a>)</div>
   </div>
 </div>
 
@@ -92,6 +95,6 @@
 
 <div id="winBanner" class="hidden"><div id="winText">WINNER WINNER!</div><div id="winSub">#1 Victory Royale</div></div>
 
-<script type="module" src="src/main.js?v=115"></script>
+<script type="module" src="src/main.js?v=116"></script>
 </body>
 </html>

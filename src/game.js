@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=115';
-import { generateWorld } from './world.js?v=115';
-import { makeBotController } from './bots.js?v=115';
-import { sfx } from './audio.js?v=115';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=116';
+import { generateWorld } from './world.js?v=116';
+import { makeBotController } from './bots.js?v=116';
+import { sfx } from './audio.js?v=116';
 
 let PID = 1;
 
@@ -1486,75 +1486,115 @@ export class Game {
     }
   }
 
-  // distinct gun silhouettes, drawn facing +x from the hands
+  // distinct gun silhouettes, drawn facing +x from the hands (origin ≈ grip)
   drawGunModel(gun, rarColor, L) {
     const { ctx } = this;
-    const body = '#3a3a3f', dark = '#222228', wood = '#7a4d1e';
-    const tip = (x, w = 8) => { ctx.fillStyle = rarColor; ctx.fillRect(x, -4.5, w, 9); };
-    ctx.fillStyle = body;
+    const body = '#41414a', dark = '#202027', wood = '#8a5a28', woodD = '#5e3a15', steel = '#9aa0ad';
+    ctx.lineWidth = 1.6; ctx.strokeStyle = '#141419';
+    const R = (x, y, w, h, fill) => { ctx.fillStyle = fill || body; ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h); };
+    const tip = (x, w = 8, h = 9) => { ctx.fillStyle = rarColor; ctx.fillRect(x, -h / 2, w, h); ctx.strokeRect(x, -h / 2, w, h); };
+    const shine = (x, y, w) => { ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(x, y, w, 1.6); };
     switch (gun) {
       case 'pistol':
-        ctx.fillRect(10, -4, L * 0.62, 8);
-        ctx.fillStyle = wood; ctx.fillRect(13, 3, 7, 11);
+        R(10, -4, L * 0.62, 8); shine(10, -3, L * 0.62);
+        R(13, 3, 7, 11, wood);
+        R(10 + L * 0.62 - 2, -3, 6, 6, dark);
         tip(10 + L * 0.62 - 2, 6); break;
       case 'revolver':
-        ctx.fillRect(10, -3.5, L * 0.55, 7);
-        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(21, 0, 6.5, 0, 7); ctx.fill();
-        ctx.fillStyle = wood; ctx.fillRect(13, 4, 7, 11);
+        R(10, -3.5, L * 0.55, 7); shine(10, -2.5, L * 0.55);
+        ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(22, 0, 6.5, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(22, 0, 2.4, 0, 7); ctx.fill();
+        R(13, 4, 7, 11, wood);
         tip(10 + L * 0.55 - 2, 6); break;
       case 'smg':
-        ctx.fillRect(10, -4.5, L * 0.6, 9);
-        ctx.fillRect(1, -3, 10, 6);
-        ctx.fillStyle = dark; ctx.fillRect(23, 3, 6, 12);
+        R(1, -3, 10, 6, woodD);
+        R(10, -4.5, L * 0.6, 9); shine(10, -3.5, L * 0.6);
+        ctx.save(); ctx.translate(24, 3); ctx.rotate(0.18); ctx.fillStyle = dark; ctx.fillRect(-3, 0, 7, 12); ctx.strokeRect(-3, 0, 7, 12); ctx.restore();
+        R(14, -8, 5, 4, dark);
         tip(10 + L * 0.6 - 2); break;
       case 'shotgun':
-        ctx.fillRect(10, -5, L * 0.72, 4.5); ctx.fillRect(10, 0.5, L * 0.72, 4.5);
-        ctx.fillStyle = wood; ctx.fillRect(15, -6, 13, 12);
-        ctx.fillStyle = rarColor; ctx.fillRect(10 + L * 0.72 - 3, -5, 7, 10); break;
-      case 'ar': case 'burst':
-        ctx.fillRect(10, -3.5, L * 0.78, 7);
-        ctx.fillStyle = wood; ctx.fillRect(0, -4, 11, 8);
-        ctx.fillStyle = dark;
-        ctx.save(); ctx.translate(25, 3); ctx.rotate(0.35); ctx.fillRect(-3, 0, 7, 13); ctx.restore();
-        ctx.fillRect(20, -9, 7, 6);
-        if (gun === 'burst') { ctx.fillStyle = rarColor; ctx.beginPath(); ctx.arc(23.5, -6, 2, 0, 7); ctx.fill(); }
-        tip(10 + L * 0.78 - 2); break;
+        R(10, -5, L * 0.72, 4.5, steel); R(10, 0.5, L * 0.72, 4.5, steel);
+        R(15, -6, 13, 12, wood); shine(15, -5, 13);
+        R(2, -4, 9, 8, woodD);
+        ctx.fillStyle = rarColor; ctx.fillRect(10 + L * 0.72 - 3, -5, 7, 10); ctx.strokeRect(10 + L * 0.72 - 3, -5, 7, 10); break;
+      case 'ar': case 'burst': {
+        const long = L * 0.78;
+        R(0, -4, 11, 8, woodD);
+        R(10, -3.5, long, 7); shine(10, -2.5, long);
+        ctx.save(); ctx.translate(26, 3); ctx.rotate(0.35); ctx.fillStyle = dark; ctx.fillRect(-3, 0, 7, 13); ctx.strokeRect(-3, 0, 7, 13); ctx.restore();
+        R(19, -9, 8, 6, dark);
+        ctx.fillStyle = gun === 'burst' ? rarColor : '#7CFC00';
+        ctx.beginPath(); ctx.arc(23, -6, 2, 0, 7); ctx.fill();
+        tip(10 + long - 2); break;
+      }
       case 'lmg':
-        ctx.fillRect(8, -5.5, L * 0.6, 11);
-        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(24, 5, 8, 0, 7); ctx.fill();
-        ctx.fillStyle = wood; ctx.fillRect(0, -4, 10, 8);
+        R(0, -4, 10, 8, woodD);
+        R(8, -5.5, L * 0.6, 11); shine(8, -4.5, L * 0.6);
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(25, 5, 8, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(25, 5, 3, 0, 7); ctx.fill();
+        R(30, 8, 4, 8, dark);
         tip(8 + L * 0.6 - 2); break;
       case 'minigun':
-        ctx.fillStyle = dark; ctx.fillRect(5, -7, 15, 14);
-        ctx.fillStyle = body;
-        for (const oy of [-6, -1.5, 3]) ctx.fillRect(12, oy, L * 0.68, 4);
-        ctx.fillStyle = wood; ctx.fillRect(0, -3, 7, 10);
-        tip(12 + L * 0.68 - 2, 9); break;
+        R(0, -3, 8, 10, woodD);
+        R(5, -8, 15, 16, dark);
+        ctx.fillStyle = '#c33'; ctx.beginPath(); ctx.arc(12.5, 0, 3, 0, 7); ctx.fill();
+        ctx.fillStyle = steel;
+        for (const oy of [-6.5, -1.8, 2.8]) { ctx.fillRect(13, oy, L * 0.68, 4); ctx.strokeRect(13, oy, L * 0.68, 4); }
+        shine(13, -5.5, L * 0.68);
+        tip(13 + L * 0.68 - 2, 10, 11); break;
       case 'scout': case 'sniper': {
         const long = gun === 'sniper';
-        ctx.fillRect(8, -2.5, L * (long ? 0.95 : 0.85), 5);
-        ctx.fillStyle = wood; ctx.fillRect(2, -4, 10, 8);
-        ctx.fillStyle = dark; ctx.fillRect(17, -9, 11, 5);
-        ctx.fillRect(20, -4, 2, 3); ctx.fillRect(26, -4, 2, 3);
-        tip(8 + L * (long ? 0.95 : 0.85) - 2, 6); break;
+        const bl = L * (long ? 0.95 : 0.85);
+        R(2, -4, 10, 8, wood);
+        R(8, -2.5, bl, 5, steel); shine(8, -1.8, bl);
+        R(17, -9.5, 11, 5.5, dark);
+        R(20, -4, 2, 3, dark); R(26, -4, 2, 3, dark);
+        ctx.fillStyle = '#bfe9ff'; ctx.fillRect(18.5, -8.5, 8, 3);
+        if (long) { R(8 + bl - 14, -4, 10, 2.5, dark); }
+        tip(8 + bl - 2, 6); break;
       }
       case 'crossbow':
-        ctx.fillStyle = wood; ctx.fillRect(8, -3, L * 0.6, 6);
-        ctx.strokeStyle = dark; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(10 + L * 0.42, -13); ctx.quadraticCurveTo(10 + L * 0.62, 0, 10 + L * 0.42, 13); ctx.stroke();
-        ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(10 + L * 0.42, -13); ctx.lineTo(16, 0); ctx.lineTo(10 + L * 0.42, 13); ctx.stroke();
-        ctx.fillStyle = '#999'; ctx.fillRect(12, -1.5, L * 0.55, 3);
-        tip(12 + L * 0.55 - 2, 5); break;
+        R(8, -3, L * 0.6, 6, wood); shine(8, -2, L * 0.6);
+        ctx.strokeStyle = woodD; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(10 + L * 0.42, -14); ctx.quadraticCurveTo(10 + L * 0.64, 0, 10 + L * 0.42, 14); ctx.stroke();
+        ctx.strokeStyle = '#e8e8e8'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(10 + L * 0.42, -14); ctx.lineTo(15, 0); ctx.lineTo(10 + L * 0.42, 14); ctx.stroke();
+        ctx.fillStyle = steel; ctx.fillRect(11, -1.5, L * 0.58, 3);
+        ctx.fillStyle = rarColor;
+        ctx.beginPath(); ctx.moveTo(11 + L * 0.58 + 5, 0); ctx.lineTo(11 + L * 0.58 - 1, -3); ctx.lineTo(11 + L * 0.58 - 1, 3); ctx.closePath(); ctx.fill();
+        break;
       case 'grenade':
-        ctx.fillRect(10, -6, L * 0.55, 12);
-        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(25, 8, 7.5, 0, 7); ctx.fill();
-        ctx.fillStyle = wood; ctx.fillRect(12, 5, 7, 10);
-        tip(10 + L * 0.55 - 2, 10); break;
+        R(10, -6, L * 0.55, 12); shine(10, -5, L * 0.55);
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(26, 8, 7.5, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = wood; ctx.fillRect(12, 5, 7, 10); ctx.strokeRect(12, 5, 7, 10);
+        R(10 + L * 0.55 - 2, -7, 10, 14, dark);
+        tip(10 + L * 0.55 - 2, 10, 14); break;
       default:
-        ctx.fillRect(10, -4, L * 0.7, 8);
+        R(10, -4, L * 0.7, 8);
         tip(10 + L * 0.7 - 2); break;
     }
+    ctx.lineWidth = 1; ctx.strokeStyle = '#000';
+  }
+
+  // cached data-URL icon for HUD slots — rendered once per gun+rarity
+  gunIcon(gun, rarity) {
+    this._iconCache = this._iconCache || {};
+    const k = gun + ':' + rarity;
+    if (this._iconCache[k]) return this._iconCache[k];
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 40;
+    const g2 = c.getContext('2d');
+    const real = this.ctx;
+    this.ctx = g2;
+    try {
+      g2.translate(6, 22); g2.scale(1.05, 1.05);
+      this.drawGunModel(gun, (RARITIES[rarity] || RARITIES[0]).color, WEAPONS[gun].len);
+    } catch { /* headless — no canvas */ }
+    this.ctx = real;
+    let url = '';
+    try { url = c.toDataURL(); } catch { }
+    this._iconCache[k] = url;
+    return url;
   }
 
   drawPlayer(p) {
