@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=116';
-import { P2PNet } from './net.js?v=116';
-import { WEAPONS } from './config.js?v=116';
-import { sfx } from './audio.js?v=116';
-import { auth } from './auth.js?v=116';
-window.__ZC_BUILD = 'v116';
+import { Game } from './game.js?v=117';
+import { P2PNet } from './net.js?v=117';
+import { WEAPONS } from './config.js?v=117';
+import { sfx } from './audio.js?v=117';
+import { auth } from './auth.js?v=117';
+window.__ZC_BUILD = 'v117';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -194,7 +194,7 @@ $('menuBtn').onclick = showMenu;
 // --- ONLINE: automatic public lobbies, no rooms/codes ---
 // First arrival hosts (authoritative sim), rest join as guests.
 // Match starts 30s after 2+ humans are present. Bots fill to ~60.
-const ONLINE_BOTS = 55;
+const ONLINE_BOTS = 60;
 const ONLINE_START_WAIT = 30;
 let onlineTimer = null;
 let onlineCancelled = false;

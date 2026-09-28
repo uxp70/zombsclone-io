@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=116';
-import { generateWorld } from './world.js?v=116';
-import { makeBotController } from './bots.js?v=116';
-import { sfx } from './audio.js?v=116';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=117';
+import { generateWorld } from './world.js?v=117';
+import { makeBotController } from './bots.js?v=117';
+import { sfx } from './audio.js?v=117';
 
 let PID = 1;
 
@@ -102,6 +102,9 @@ export class Game {
     this.time = 0; this.takenIds.clear();
     this._won = false; this.killfeed = [];
     this.pidMap = new Map();
+    this.botControllers.clear();
+    this.pendingBots = [];
+    this.joinAcc = 0;
 
     // gas init: full map → first target
     this.gas = {
@@ -148,12 +151,14 @@ export class Game {
         this.players.push(m);
         this.botControllers.set(m.id, makeBotController(m, this));
       }
-      // bots trickle into the lobby gradually (see updateLobby)
+      // bots trickle into the lobby gradually (see updateLobby) —
+      // first batch joins instantly so the lobby never looks empty
       this.pendingBots = [];
       for (let i = 0; i < botCount; i++) {
         this.pendingBots.push({ name: names[ni++] || ('bot' + i), skill: rand(0.25, 0.9), team: 't-' + i });
       }
       this.joinAcc = 0;
+      for (let i = 0; i < 8 && this.pendingBots.length; i++) this.spawnBot(this.pendingBots.shift());
       this.centerMsg('Match starting soon — run around!', 3);
     }
 
@@ -518,6 +523,8 @@ export class Game {
     this.bullets.length = 0;
     this.phase = 'plane';
     this.peaceT = GRACE_TIME; // grace runs from first jump, not plane end
+    const humans = this.players.filter((p) => !p.isBot && !p.dead).length;
+    this.feed(`<b>${this.players.length - humans} bots</b> + <b>${humans} human${humans === 1 ? '' : 's'}</b> — good luck!`);
     this.centerMsg('Jump with SPACE / F!', 3);
   }
 
