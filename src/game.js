@@ -92,6 +92,7 @@ export class Game {
     this.obstacles = w.obstacles; this.loot = w.loot; this.ponds = w.ponds; this.roads = w.roads;
     this.players = []; this.bullets = []; this.particles = []; this.floatChats = [];
     this.time = 0; this.takenIds.clear();
+    this._won = false; this.killfeed = [];
     this.pidMap = new Map();
 
     // gas init: full map → first target
@@ -148,8 +149,10 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.05, (t - this.last) / 1000 || 0.016);
       this.last = t;
-      if (!this.isRemote) this.update(dt); else this.updateRemote(dt);
-      this.render();
+      try {
+        if (!this.isRemote) this.update(dt); else this.updateRemote(dt);
+        this.render();
+      } catch (err) { console.error('[game] frame error:', err); }
       this._raf = requestAnimationFrame(loop);
     };
     this._raf = requestAnimationFrame(loop);
@@ -205,6 +208,8 @@ export class Game {
   }
   switchSlot(p, i) {
     if (!p.slots[i]) return;
+    const cur = p.slots[p.slotI];
+    if (cur) cur._reloading = false;
     p.slotI = i; p.gun = p.slots[i].gun; p.reloadT = 0; p.healing = null;
     sfx.ui();
   }

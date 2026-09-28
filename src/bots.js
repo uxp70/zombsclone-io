@@ -27,7 +27,7 @@ export function makeBotController(bot, game) {
       // Perception
       const enemy = nearestEnemy(g, p, 850);
       const inGas = g.isOutsideGas(p.x, p.y);
-      const zone = g.gas.target;
+      const zone = { x: g.gas.tx, y: g.gas.ty, r: g.gas.tr };
       const zoneD = Math.hypot(p.x - zone.x, p.y - zone.y);
 
       let mvx = 0, mvy = 0;

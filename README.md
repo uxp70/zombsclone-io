@@ -33,6 +33,17 @@ Mobile: left-half virtual stick moves, right-half aims + fires.
 - Bots: loot scoring, zone rotation, strafing, range-keeping, miss-skill, healing, crate-breaking, random chat (`weird flex but ok`, `oof`, …)
 - Procedural WebAudio SFX (no assets)
 
+## Accounts (login system)
+
+No server needed: register/login on the menu with a username + password.
+Accounts live in the browser (`localStorage`), passwords are salted +
+SHA-256 hashed, and each account keeps persistent stats (games / kills /
+wins) plus a body color (reroll with 🎨). Logged-in players always play
+under their username; guests can still play via the nickname field.
+
+> Local auth stops casual snooping, not a determined attacker with device
+> access. True cross-device accounts would need a backend.
+
 ## Why P2P and not a dedicated server?
 
 GitHub Pages serves **static files only**. A real 100-player authoritative server (Node + WebSockets) can't run there. So:

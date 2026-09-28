@@ -36,6 +36,27 @@
   <div class="menu-inner">
     <h1>ZOMBS<span>CLONE</span>.IO</h1>
     <p class="sub">Open-source battle royale • solo vs 99 bots • P2P online with friends</p>
+    <div id="account">
+      <div id="authForm">
+        <div class="auth-grid">
+          <input id="authUser" maxlength="14" placeholder="Username (3–14, a-z 0-9 _)" autocomplete="username" />
+          <input id="authPass" type="password" maxlength="64" placeholder="Password (4+ chars)" autocomplete="current-password" />
+        </div>
+        <div class="auth-row">
+          <button id="loginBtn">Login</button>
+          <button id="regBtn">Register</button>
+        </div>
+        <div id="authMsg"></div>
+        <div class="auth-hint">Accounts live in this browser (localStorage). Or play as guest below.</div>
+      </div>
+      <div id="userChip" class="hidden">
+        <span id="userDot"></span>
+        <b id="userName"></b>
+        <span id="userStats"></span>
+        <button id="colorBtn" title="New body color">🎨</button>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </div>
     <input id="nick" maxlength="14" placeholder="Enter name…" value="Prodigy" />
     <div class="modes">
       <button data-mode="solo" class="mode active">Solo</button>

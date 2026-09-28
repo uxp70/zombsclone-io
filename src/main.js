@@ -2,6 +2,7 @@ import { Game } from './game.js';
 import { P2PNet } from './net.js';
 import { WEAPONS } from './config.js';
 import { sfx } from './audio.js';
+import { auth } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game'), minimap = $('minimap');
@@ -32,10 +33,52 @@ function showGameUI() {
 }
 function showMenu() {
   game.stop();
+  refreshAccount();
   $('hud').classList.add('hidden');
   $('deathScreen').classList.add('hidden');
   $('menu').classList.remove('hidden');
 }
+
+// ---------- accounts ----------
+function authMsg(text, ok = false) {
+  const el = $('authMsg');
+  el.textContent = text || '';
+  el.classList.toggle('ok', !!ok);
+}
+function refreshAccount() {
+  const me = auth.current();
+  $('authForm').classList.toggle('hidden', !!me);
+  $('userChip').classList.toggle('hidden', !me);
+  if (me) {
+    $('userName').textContent = me.name;
+    $('userDot').style.background = me.color;
+    const s = me.stats || { games: 0, kills: 0, wins: 0 };
+    $('userStats').textContent = `${s.games} games • ${s.kills} kills • ${s.wins} wins`;
+    $('nick').value = me.name;
+    $('nick').disabled = true;
+  } else {
+    $('nick').disabled = false;
+  }
+}
+$('loginBtn').onclick = async () => {
+  try { await auth.login($('authUser').value, $('authPass').value); authMsg('Logged in!', true); sfx.ui(); }
+  catch (e) { authMsg(e.message); return; }
+  $('authPass').value = '';
+  refreshAccount();
+};
+$('regBtn').onclick = async () => {
+  try { await auth.register($('authUser').value, $('authPass').value); authMsg('Account created!', true); sfx.ui(); }
+  catch (e) { authMsg(e.message); return; }
+  $('authPass').value = '';
+  refreshAccount();
+};
+$('authPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
+$('logoutBtn').onclick = () => { auth.logout(); authMsg(''); refreshAccount(); };
+$('colorBtn').onclick = () => {
+  const c = auth.rerollColor();
+  if (c) $('userDot').style.background = c;
+};
+refreshAccount();
 
 // HUD wiring
 game.onKillfeed = (feeds) => {
@@ -94,11 +137,13 @@ game.onHud = (h) => {
   } else tip.classList.add('hidden');
 };
 game.onDeath = ({ rank, total, by, kills }) => {
+  auth.recordGame({ kills, win: false });
   $('deathTitle').textContent = `#${rank} of ${total}`;
   $('deathSub').textContent = `Eliminated by ${by} • ${kills} kills`;
   $('deathScreen').classList.remove('hidden');
 };
 game.onWin = ({ kills }) => {
+  auth.recordGame({ kills, win: true });
   const b = $('winBanner');
   b.classList.remove('hidden');
   $('winSub').textContent = `#1 Victory Royale • ${kills} kills`;
@@ -120,10 +165,12 @@ game.feed = game.feed.bind(game);
 
 $('playBtn').onclick = () => {
   sfx.ensure(); sfx.ui();
-  const name = $('nick').value || 'Prodigy';
+  const me = auth.current();
+  const name = (me && me.name) || $('nick').value || 'Prodigy';
   roomCode = null; isHost = false;
   showGameUI();
   game.start({ name, mode, botCount: botCountFor(), net: null, isRemote: false });
+  if (me && game.local) game.local.color = me.color;
   $('repoLink').href = location.href.includes('github.io') ? location.href : 'https://github.com';
 };
 
@@ -140,7 +187,7 @@ $('createBtn').onclick = async () => {
     $('roomCode').value = code;
     $('roomInfo').textContent = `Room ${code} — share the code! Press PLAY to start as host (bots fill gaps). ${net.supported ? '' : ''}`;
     // host: start game immediately with fewer bots; guests join mid-game? v1: host starts now
-    const name = $('nick').value || 'Prodigy';
+    const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
     showGameUI();
     game.start({ name, mode, botCount: 50, net, isRemote: false, teamId: 't-local' });
     net.onInput = (peerId, input, meta) => {
@@ -173,7 +220,7 @@ $('joinBtn').onclick = async () => {
     $('roomInfo').textContent = 'Joining ' + code + '…';
     await net.join(code);
     roomCode = code; isHost = false;
-    const name = $('nick').value || 'Prodigy';
+    const name = (auth.current() && auth.current().name) || $('nick').value || 'Prodigy';
     showGameUI();
     // guest: remote-render mode; seed stub world (host snapshot corrects)
     game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true });
@@ -192,9 +239,11 @@ $('joinBtn').onclick = async () => {
   }
 };
 
-// Enter-to-chat quick messages (like screenshots' bubbles)
+// Enter for quick-chat bubbles (only while playing, not while typing)
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && game.local && !game.local.dead && !$('menu').classList.contains('hidden') === false) {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'TEXTAREA') return;
+  if (e.key === 'Enter' && game.local && !game.local.dead && $('menu').classList.contains('hidden')) {
     const msgs = ['gg', 'yeet', 'oof', 'rush me', 'need shield!', 'gas gas gas'];
     const t = msgs[(Math.random() * msgs.length) | 0];
     game.chat(game.local, t);
