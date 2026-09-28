@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=113';
-import { P2PNet } from './net.js?v=113';
-import { WEAPONS } from './config.js?v=113';
-import { sfx } from './audio.js?v=113';
-import { auth } from './auth.js?v=113';
-window.__ZC_BUILD = 'v113';
+import { Game } from './game.js?v=114';
+import { P2PNet } from './net.js?v=114';
+import { WEAPONS } from './config.js?v=114';
+import { sfx } from './audio.js?v=114';
+import { auth } from './auth.js?v=114';
+window.__ZC_BUILD = 'v114';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -24,8 +24,8 @@ document.querySelectorAll('.mode').forEach((b) => {
 });
 
 function botCountFor() {
-  // bigger 6000px map supports bigger lobbies
-  return mode === 'solo' ? 90 : mode === 'duo' ? 70 : 60;
+  // 9000px map supports 100-player lobbies
+  return mode === 'solo' ? 100 : mode === 'duo' ? 80 : 60;
 }
 
 function showGameUI() {
@@ -133,7 +133,9 @@ game.onHud = (h) => {
   const tip = $('interactTip');
   if (h.interact && !h.dropping) {
     const l = h.interact;
-    const label = l.kind === 'weapon' ? `${WEAPONS[l.weapon].name} [${['C', 'U', 'R', 'E', 'L'][l.rarity]}]` : l.kind === 'heal' ? l.heal : l.ammo + ' ammo';
+    const label = l.chest
+      ? (l.tier === 'golden' ? '💛 Golden Chest — better loot!' : '🎁 Basic Chest')
+      : l.kind === 'weapon' ? `${WEAPONS[l.weapon].name} [${['C', 'U', 'R', 'E', 'L'][l.rarity]}]` : l.kind === 'heal' ? l.heal : l.ammo + ' ammo';
     tip.innerHTML = `Press <b>E</b> — ${escapeHtml(label)}`;
     tip.classList.remove('hidden');
   } else tip.classList.add('hidden');
@@ -232,6 +234,7 @@ $('createBtn').onclick = async () => {
       p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
       p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
       if (input.drop && p.dropping) game.tryDrop(p);
+      if (input.use) game.tryInteract(p);
     };
     net.onMember = (n) => { $('roomInfo').textContent = `Room ${code} — ${n} friend(s) connected (+bots).`; };
     net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
@@ -253,15 +256,10 @@ async function joinRoom(code, pass = '') {
     setTimeout(() => { net.destroy(); showMenu(); $('roomInfo').textContent = 'Join denied: ' + reason + ' Check the password and retry.'; }, 2500);
   };
   showGameUI();
-  // guest: remote-render mode; seed stub world (host snapshot corrects)
+  // guest: remote-render mode (first snapshot adopts the host's seeded world)
   game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true });
   // local pseudo player for camera/identity
-  game.local = { name, x: 2100, y: 2100 };
-  // build a stub world so map renders before first snapshot
-  const { generateWorld } = await import('./world.js?v=113');
-  const w = generateWorld(12345);
-  game.obstacles = w.obstacles; game.loot = w.loot; game.ponds = w.ponds; game.roads = w.roads;
-  game.gas = { x: 2100, y: 2100, r: 2500, tx: 2100, ty: 2100, tr: 1500 };
+  game.local = { name, x: 4500, y: 4500 };
   net.onSnapshot = (snap) => game.applySnapshot(snap);
   net.sendHello({ name, pass });
   $('roomInfo').textContent = `Joined ${code} — following host simulation.`;

@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, BOT_CHATS, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=113';
-import { generateWorld } from './world.js?v=113';
-import { makeBotController } from './bots.js?v=113';
-import { sfx } from './audio.js?v=113';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=114';
+import { generateWorld } from './world.js?v=114';
+import { makeBotController } from './bots.js?v=114';
+import { sfx } from './audio.js?v=114';
 
 let PID = 1;
 
@@ -45,7 +45,7 @@ export class Game {
       if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
       if (!this.local || this.local.dead) return;
       const k = e.key.toLowerCase();
-      if (k === 'e') this.tryPickupNearest(this.local);
+      if (k === 'e') this.tryInteract(this.local);
       if (k === 'r') this.startReload(this.local);
       if (k === 'q') this.startHeal(this.local, 'bandage');
       if (k === 'x') this.startHeal(this.local, this.local.shield < 100 && this.local.heals.shield > 0 ? 'shield' : 'medkit');
@@ -93,6 +93,11 @@ export class Game {
     const w = generateWorld(seed);
     this.seed = seed;
     this.obstacles = w.obstacles; this.loot = w.loot; this.ponds = w.ponds; this.roads = w.roads;
+    this.houses = w.houses;
+    // chests are the ONLY gun source: basic (1x1) + golden (1x2)
+    this.chests = this.wrapChests(w.chests);
+    this.openedIds = new Set();
+    // (pen clearing happens below once the lobby rect is defined)
     this.players = []; this.bullets = []; this.particles = []; this.floatChats = [];
     this.time = 0; this.takenIds.clear();
     this._won = false; this.killfeed = [];
@@ -111,9 +116,9 @@ export class Game {
     const pw = 820, ph = 620;
     this.lobby = { x: WORLD_SIZE / 2 - pw / 2, y: WORLD_SIZE / 2 - ph / 2, w: pw, h: ph };
     const inPen = (x, y) => x > this.lobby.x - 40 && x < this.lobby.x + this.lobby.w + 40 && y > this.lobby.y - 40 && y < this.lobby.y + this.lobby.h + 40;
-    this.obstacles = this.obstacles.filter((o) => !inPen(o.x + (o.w || 0) / 2, o.y + (o.h || 0) / 2));
-    this.loot = this.loot.filter((l) => !inPen(l.x, l.y));
+    this.clearPen(inPen);
     this.compounds = w.compounds;
+    this.buildGrid();
 
     this.phase = 'lobby';
     this.lobbyT = LOBBY_TIME;
@@ -176,7 +181,7 @@ export class Game {
       speed: 265, gun: 'fists', slots: [{ gun: 'fists', rarity: 0, magAmmo: Infinity }], slotI: 0,
       ammo: { light: 60, medium: 30, shell: 8, heavy: 5 },
       heals: { bandage: 1, medkit: 0, shield: 0 },
-      kills: 0, dropping: false, chute: 0, reloadT: 0, shootCd: 0, healing: null,
+      kills: 0, dropping: false, chute: 0, reloadT: 0, shootCd: 0, healing: null, useCd: 0,
       input: { mx: 0, my: 0, shoot: false },
       skill: rand(0.3, 0.8), armor: 0,
       color: `hsl(${(Math.random() * 360) | 0} 65% 55%)`,
@@ -265,7 +270,7 @@ export class Game {
         const w = WEAPONS[l.weapon];
         p.slots[idx] = { gun: l.weapon, rarity: l.rarity, magAmmo: w.mag };
         p.ammo[w.ammo] = (p.ammo[w.ammo] || 0) + Math.ceil(w.mag * 0.7);
-        if (p.isBot || Math.random() < 0.6) { p.slotI = idx; p.gun = l.weapon; }
+        if (p.isBot || p.gun === 'fists' || Math.random() < 0.6) { p.slotI = idx; p.gun = l.weapon; }
       }
       l.taken = true; this.takenIds.add(l.id);
       if (p === this.local) sfx.pickup();
@@ -317,6 +322,7 @@ export class Game {
           x: p.x + Math.cos(a) * 26, y: p.y + Math.sin(a) * 26,
           vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
           dmg, range: w.range * rand(0.9, 1.1), traveled: 0, from: p.id, team: p.team, gun: s.gun,
+          splash: w.splash || 0,
         });
       }
     }
@@ -341,6 +347,33 @@ export class Game {
     }
   }
 
+  explode(x, y, radius, dmg, fromId) {
+    const shooter = this.players.find((s) => s.id === fromId);
+    for (const p of this.players) {
+      if (p.dead || p.dropping) continue;
+      if (shooter && shooter.team && p.team && shooter.team === p.team && p !== shooter) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < radius + p.r) {
+        const fall = 1 - 0.6 * (d / (radius + p.r));
+        this.damage(p, dmg * fall * (p === shooter ? 0.5 : 1), shooter);
+      }
+    }
+    const near = this.grid ? this.gridQuery(x - radius, y - radius, x + radius, y + radius) : this.obstacles;
+    for (const o of near) {
+      if (o.destroyed || o.type === 'chest' || o.type === 'chest_gold') continue;
+      const ox = o.type === 'wall' ? o.x + o.w / 2 : o.x;
+      const oy = o.type === 'wall' ? o.y + o.h / 2 : o.y;
+      if (Math.hypot(ox - x, oy - y) < radius + 20) this.damageObstacle(o, dmg, shooter);
+    }
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2, sp = rand(40, 320);
+      this.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: rand(0.3, 0.7), max: 0.7, c: pick(['#ffdd44', '#ff8830', '#ff4422', '#555555']), r: rand(3, 8) });
+    }
+    this.particles.push({ x, y, vx: 0, vy: 0, t: 0.25, max: 0.25, c: '#fff2c0', r: radius * 0.7 });
+    sfx.boom();
+    this._shake = 10;
+  }
+
   damage(target, dmg, attacker) {
     if (target.dead || this.phase === 'lobby') return;
     target.lastDmgFrom = attacker;
@@ -363,15 +396,12 @@ export class Game {
       o.destroyed = true;
       this.particles.push({ x: o.x + (o.w || 0) / 2, y: o.y + (o.h || 0) / 2, vx: 0, vy: 0, t: 0.3, max: 0.3, c: '#8a5a2b', r: 16 });
       if (attacker === this.local) sfx.chest();
-      // crates drop loot
+      // crates drop ammo/heals only — guns come exclusively from chests
       if (o.type === 'crate' || o.type === 'barrel') {
         const cx = o.x, cy = o.y;
         const roll = Math.random();
-        if (roll < 0.45) {
-          const w = pick(['pistol', 'smg', 'shotgun', 'ar', 'burst', 'sniper', 'lmg']);
-          this.loot.push({ id: 900000 + ((Math.random() * 1e6) | 0), kind: 'weapon', weapon: w, rarity: randi(0, 4), x: cx + rand(-20, 20), y: cy + rand(-20, 20) });
-        } else if (roll < 0.7) this.loot.push({ id: 900000 + ((Math.random() * 1e6) | 0), kind: 'heal', heal: pick(['bandage', 'bandage', 'medkit', 'shield']), x: cx, y: cy });
-        else this.loot.push({ id: 900000 + ((Math.random() * 1e6) | 0), kind: 'ammo', ammo: pick(['light', 'medium', 'shell', 'heavy']), amount: 20, x: cx, y: cy });
+        if (roll < 0.5) this.dropLoot({ kind: 'heal', heal: pick(['bandage', 'bandage', 'medkit', 'shield']), x: cx, y: cy });
+        else this.dropLoot({ kind: 'ammo', ammo: pick(['light', 'medium', 'shell', 'heavy']), amount: 20, x: cx, y: cy });
       }
     }
   }
@@ -381,9 +411,9 @@ export class Game {
     victim.dead = true; victim.hp = 0;
     // drop loot
     for (const s of victim.slots) {
-      if (s && s.gun !== 'fists') this.loot.push({ id: 800000 + ((Math.random() * 1e6) | 0), kind: 'weapon', weapon: s.gun, rarity: s.rarity || 0, x: victim.x + rand(-30, 30), y: victim.y + rand(-30, 30) });
+      if (s && s.gun !== 'fists') this.dropLoot({ kind: 'weapon', weapon: s.gun, rarity: s.rarity || 0, x: victim.x + rand(-30, 30), y: victim.y + rand(-30, 30) });
     }
-    if (victim.heals.bandage > 0) this.loot.push({ id: 800000 + ((Math.random() * 1e6) | 0), kind: 'heal', heal: 'bandage', x: victim.x + 20, y: victim.y });
+    if (victim.heals.bandage > 0) this.dropLoot({ kind: 'heal', heal: 'bandage', x: victim.x + 20, y: victim.y });
     for (let i = 0; i < 10; i++) this.particles.push({ x: victim.x, y: victim.y, vx: rand(-160, 160), vy: rand(-160, 160), t: 0.5, max: 0.5, c: victim.color, r: 5 });
     if (killer && killer !== victim && !killer.dead) {
       killer.kills++;
@@ -447,14 +477,37 @@ export class Game {
     return b;
   }
 
+  wrapChests(list) {
+    return (list || []).map((c, i) => ({
+      id: 500000 + i, x: c.x, y: c.y, tier: c.tier, opened: !!c.opened,
+      type: c.tier === 'golden' ? 'chest_gold' : 'chest',
+      w: c.tier === 'golden' ? 58 : 32, h: c.tier === 'golden' ? 38 : 32,
+      r: c.tier === 'golden' ? 30 : 22, solid: true, hp: Infinity,
+    }));
+  }
+
+  // dynamic loot (chest fountains, crate/kill drops) — synced to P2P guests
+  dropLoot(item) {
+    if (item.id === undefined) item.id = 700000 + ((Math.random() * 1e6) | 0);
+    this.loot.push(item);
+    return item;
+  }
+
+  clearPen(inPen) {
+    this.obstacles = this.obstacles.filter((o) => !inPen(o.x + (o.w || 0) / 2, o.y + (o.h || 0) / 2));
+    this.loot = this.loot.filter((l) => !inPen(l.x, l.y));
+    this.chests = this.chests.filter((c) => !inPen(c.x, c.y));
+    this.houses = (this.houses || []).filter((h) => !inPen(h.x, h.y));
+  }
+
   startPlane() {
     const a = Math.random() * Math.PI * 2;
-    const cx = WORLD_SIZE / 2, cy = WORLD_SIZE / 2, Lg = WORLD_SIZE * 0.85;
+    const cx = WORLD_SIZE / 2, cy = WORLD_SIZE / 2, Lg = WORLD_SIZE * 0.62;
     const pl = this.plane;
     pl.x = cx - Math.cos(a) * Lg; pl.y = cy - Math.sin(a) * Lg;
     pl.dx = Math.cos(a); pl.dy = Math.sin(a);
     pl.ex = cx + Math.cos(a) * Lg; pl.ey = cy + Math.sin(a) * Lg;
-    pl.speed = 520; pl.t = 0; pl.active = true;
+    pl.speed = 560; pl.t = 0; pl.active = true;
     while (this.pendingBots && this.pendingBots.length) this.spawnBot(this.pendingBots.shift());
     for (const p of this.players) {
       if (p.dead) continue;
@@ -537,13 +590,13 @@ export class Game {
   update(dt) {
     this.time += dt;
     if (this.phase === 'lobby') { this.updateLobby(dt); return; }
+    this.peaceT = Math.max(0, this.peaceT - dt);
     // plane
     const pl = this.plane;
-    this.peaceT = Math.max(0, this.peaceT - dt);
     if (pl.active) {
       pl.t += dt;
       pl.x += pl.dx * pl.speed * dt; pl.y += pl.dy * pl.speed * dt;
-      for (const p of this.players) if (p.dropping) { p.x = pl.x; p.y = pl.y; }
+      for (const p of this.players) if (p.dropping) { p.x = clamp(pl.x, 40, WORLD_SIZE - 40); p.y = clamp(pl.y, 40, WORLD_SIZE - 40); }
       // auto-drop bots over time — scattered across the map
       for (const p of this.players) {
         if (!p.dropping || p === this.local) continue;
@@ -571,7 +624,6 @@ export class Game {
 
     // gas (only once everyone is on the ground)
     if (this.phase === 'play') {
-      this.peaceT = Math.max(0, this.peaceT - dt);
       const g = this.gas, ph = GAS_PHASES[Math.min(g.phase, GAS_PHASES.length - 1)];
       g.t -= dt;
       if (g.state === 'waiting') {
@@ -657,7 +709,11 @@ export class Game {
       if (p.reloadT > 0 && slot && !slot._reloading) slot._reloading = true;
 
       const n = Math.hypot(p.input.mx, p.input.my);
-      let sp = p.speed * (p.healing ? 0.45 : 1) * (p.chute > 0 ? 0.5 : 1) * (slot && WEAPONS[slot.gun].len > 36 ? 0.94 : 1);
+      const wmul = (slot && WEAPONS[slot.gun].moveMul) || 1;
+      // unarmed bots hustle to the nearest chest
+      const hustle = (p.isBot && p.gun === 'fists' && p.chute <= 0) ? 1.12 : 1;
+      let sp = p.speed * (p.healing ? 0.45 : 1) * (p.chute > 0 ? 0.5 : 1) * wmul * hustle * (slot && WEAPONS[slot.gun].len > 36 ? 0.94 : 1);
+      if (p.useCd > 0) p.useCd -= dt;
       // pond slow
       if (this.inPond(p.x, p.y)) sp *= 0.75;
       if (n > 0.01) {
@@ -677,7 +733,7 @@ export class Game {
       if (p.input.shoot) this.fire(p);
       // bot auto pickup + reload + heal key
       if (p.isBot) {
-        const l = this.nearestLoot(p, 55);
+        const l = this.nearestLoot(p, 70);
         if (l) this.tryPickup(p, l);
         if (slot && slot.magAmmo === 0) this.startReload(p);
       } else if (p === L) {
@@ -691,14 +747,27 @@ export class Game {
       const step = Math.hypot(b.vx, b.vy) * dt;
       b.x += b.vx * dt; b.y += b.vy * dt; b.traveled += step;
       let dead = b.traveled > b.range || b.x < 0 || b.y < 0 || b.x > WORLD_SIZE || b.y > WORLD_SIZE;
+      if (b.splash && dead) { this.explode(b.x, b.y, b.splash, b.dmg, b.from); }
       const hit = !dead ? this.hitObstacle(b.x, b.y) : null;
       if (hit) {
-        this.damageObstacle(hit, b.dmg, this.players.find((p) => p.id === b.from));
+        if (b.splash) this.explode(b.x, b.y, b.splash, b.dmg, b.from);
+        else this.damageObstacle(hit, b.dmg, this.players.find((p) => p.id === b.from));
         this.particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, t: 0.12, max: 0.12, c: '#fff', r: 3 });
         dead = true;
       }
       if (!dead) {
-        for (const p of this.players) {
+        if (b.splash) {
+          // lobbed grenades detonate on contact
+          for (const p of this.players) {
+            if (p.dead || p.dropping || p.id === b.from) continue;
+            const shooter = this.players.find((s) => s.id === b.from);
+            if (shooter && shooter.team && p.team && shooter.team === p.team) continue;
+            if (dist2(b.x, b.y, p.x, p.y) < 30 * 30) {
+              this.explode(b.x, b.y, b.splash, b.dmg, b.from);
+              dead = true; break;
+            }
+          }
+        } else for (const p of this.players) {
           if (p.dead || p.dropping || p.id === b.from) continue;
           const shooter = this.players.find((s) => s.id === b.from);
           if (shooter && shooter.team && p.team && shooter.team === p.team) continue;
@@ -738,7 +807,7 @@ export class Game {
         hp: L.hp, shield: L.shield, ammo: L.slots[L.slotI], reserve: L.ammo,
         heals: L.heals, slots: L.slots, slotI: L.slotI, alive, kills: L.kills,
         zone: this.zoneText(), dropping: L.dropping || L.chute > 0, reloading: L.reloadT > 0, healing: L.healing,
-        interact: this.phase === 'play' && L.chute <= 0 ? this.nearestLoot(L, 80) : null,
+        interact: this.interactTarget(L),
       });
     }
     if (this.net && this.net.isHost && this.snapT <= 0) {
@@ -762,8 +831,11 @@ export class Game {
       phase: this.phase,
       phaseStr: this.zoneText(),
       players: this.players.map((p) => ({ id: p.id, name: p.name, x: p.x | 0, y: p.y | 0, hp: p.hp | 0, shield: p.shield | 0, gun: p.gun, rarity: p.slots[p.slotI]?.rarity || 0, face: +p.faceAngle.toFixed(2), dead: p.dead, dropping: p.dropping, chute: p.chute > 0 ? 1 : 0, team: p.team, kills: p.kills })),
-      bullets: this.bullets.slice(-60).map((b) => ({ x: b.x | 0, y: b.y | 0, vx: b.vx | 0, vy: b.vy | 0 })),
+      bullets: this.bullets.slice(-60).map((b) => ({ x: b.x | 0, y: b.y | 0, vx: b.vx | 0, vy: b.vy | 0, gun: b.gun, splash: b.splash ? 1 : 0 })),
       taken: [...this.takenIds].slice(-500),
+      opened: [...this.openedIds],
+      fresh: this.loot.slice(-30),
+      lobby: this.lobby,
     };
   }
 
@@ -771,10 +843,33 @@ export class Game {
     this.remoteSnap = s;
     if (s.gas) this.gas = s.gas;
     if (s.phase) this.phase = s.phase;
-    // mark taken loot
+    // adopt the host's world (deterministic ids per seed keep loot in sync)
+    if (s.seed && s.seed !== this.seed) {
+      const w = generateWorld(s.seed);
+      this.seed = s.seed;
+      this.obstacles = w.obstacles; this.loot = w.loot; this.ponds = w.ponds; this.roads = w.roads;
+      this.compounds = w.compounds; this.houses = w.houses;
+      this.chests = this.wrapChests(w.chests);
+      this.takenIds = new Set(); this.openedIds = new Set();
+      if (s.lobby) {
+        this.lobby = s.lobby;
+        const lb = s.lobby;
+        this.clearPen((x, y) => x > lb.x - 40 && x < lb.x + lb.w + 40 && y > lb.y - 40 && y < lb.y + lb.h + 40);
+      }
+      this.buildGrid();
+    }
+    // upsert dynamic loot (chest fountains, crate/kill drops)
+    if (s.fresh) for (const f of s.fresh) {
+      if (!this.loot.find((x) => x.id === f.id)) this.loot.push({ ...f });
+    }
+    // mark taken loot + opened chests
     if (s.taken) for (const id of s.taken) {
       const l = this.loot.find((x) => x.id === id);
       if (l) l.taken = true;
+    }
+    if (s.opened) for (const id of s.opened) {
+      const c = this.chests.find((x) => x.id === id);
+      if (c) c.opened = true;
     }
     // upsert players
     const seen = new Set();
@@ -805,9 +900,16 @@ export class Game {
       if (this.keys['a']) mx -= 1; if (this.keys['d']) mx += 1;
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
-      this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']) }, { name: this.local.name });
+      this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
     }
     for (let i = this.particles.length - 1; i >= 0; i--) { this.particles[i].t -= dt; if (this.particles[i].t <= 0) this.particles.splice(i, 1); }
+    // coast snapshot bullets so tracers stay smooth between 12Hz snapshots
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      const b = this.bullets[i];
+      b.x += (b.vx || 0) * dt; b.y += (b.vy || 0) * dt;
+      b.traveled = (b.traveled || 0) + Math.hypot(b.vx || 0, b.vy || 0) * dt;
+      if (b.traveled > 1400) this.bullets.splice(i, 1);
+    }
     if (this.onHud) {
       const alive = this.players.filter((p) => !p.dead).length;
       this.onHud({ hp: 100, shield: 0, slots: [], slotI: 0, alive, kills: 0, zone: (this.remoteSnap && this.remoteSnap.phaseStr) || 'Online', remote: true });
@@ -820,12 +922,111 @@ export class Game {
     return false;
   }
 
+  // uniform spatial grid — the 9000px map holds 1600+ obstacles
+  buildGrid() {
+    this.gridCell = 256;
+    this.grid = new Map();
+    const all = this.obstacles.concat(this.chests);
+    for (const o of all) {
+      const b = this.obBox(o);
+      const x0 = Math.floor(b.x0 / this.gridCell), x1 = Math.floor(b.x1 / this.gridCell);
+      const y0 = Math.floor(b.y0 / this.gridCell), y1 = Math.floor(b.y1 / this.gridCell);
+      for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) {
+        const k = cx + ':' + cy;
+        let arr = this.grid.get(k);
+        if (!arr) { arr = []; this.grid.set(k, arr); }
+        arr.push(o);
+      }
+    }
+  }
+  obBox(o) {
+    if (o.type === 'wall') return { x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + o.h };
+    const cx = o.x, cy = o.y, r = o.r || 20;
+    return { x0: cx - r, y0: cy - r, x1: cx + r, y1: cy + r };
+  }
+  gridQuery(x0, y0, x1, y1) {
+    const seen = new Set(), out = [];
+    const cx0 = Math.floor(x0 / this.gridCell), cx1 = Math.floor(x1 / this.gridCell);
+    const cy0 = Math.floor(y0 / this.gridCell), cy1 = Math.floor(y1 / this.gridCell);
+    for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+      const arr = this.grid.get(cx + ':' + cy);
+      if (!arr) continue;
+      for (const o of arr) if (!seen.has(o)) { seen.add(o); out.push(o); }
+    }
+    return out;
+  }
+
+  nearestChest(p, maxD = 120) {
+    let best = null, bd = maxD * maxD;
+    for (const c of this.chests) {
+      if (c.opened) continue;
+      const d2 = dist2(p.x, p.y, c.x, c.y);
+      if (d2 < bd) { bd = d2; best = c; }
+    }
+    return best;
+  }
+
+  chestRoll(tier) {
+    const r = Math.random();
+    return tier === 'golden'
+      ? (r < 0.05 ? 0 : r < 0.25 ? 1 : r < 0.6 ? 2 : r < 0.87 ? 3 : 4)
+      : (r < 0.55 ? 0 : r < 0.83 ? 1 : r < 0.95 ? 2 : r < 0.995 ? 3 : 4);
+  }
+
+  openChest(p, c) {
+    if (!c || c.opened || p.dead || p.dropping || p.chute > 0) return false;
+    if (dist2(p.x, p.y, c.x, c.y) > 100 * 100) return false;
+    c.opened = true;
+    this.openedIds.add(c.id);
+    const pool = c.tier === 'golden' ? CHEST_POOL_GOLDEN : CHEST_POOL_BASIC;
+    const drops = [];
+    const nGuns = c.tier === 'golden' ? (Math.random() < 0.5 ? 2 : 1) : 1;
+    for (let i = 0; i < nGuns; i++) drops.push({ kind: 'weapon', weapon: pick(pool), rarity: this.chestRoll(c.tier) });
+    const w0 = WEAPONS[drops[0].weapon];
+    drops.push({ kind: 'ammo', ammo: w0.ammo, amount: w0.mag * 2 });
+    if (Math.random() < (c.tier === 'golden' ? 0.8 : 0.45)) drops.push({ kind: 'heal', heal: pick(['bandage', 'bandage', 'medkit']) });
+    if (c.tier === 'golden' && Math.random() < 0.5) drops.push({ kind: 'heal', heal: 'shield' });
+    for (const d of drops) {
+      const a = Math.random() * Math.PI * 2, rr = rand(30, 52);
+      d.x = clamp(c.x + Math.cos(a) * rr, 30, WORLD_SIZE - 30);
+      d.y = clamp(c.y + Math.sin(a) * rr, 30, WORLD_SIZE - 30);
+      this.dropLoot(d);
+    }
+    for (let i = 0; i < 14; i++) this.particles.push({ x: c.x + rand(-16, 16), y: c.y + rand(-12, 12), vx: rand(-120, 120), vy: rand(-160, -20), t: 0.6, max: 0.6, c: c.tier === 'golden' ? '#ffd23f' : '#fff', r: 4 });
+    if (p === this.local) {
+      if (c.tier === 'golden') { this.centerMsg('💛 GOLDEN CHEST!', 1.8); sfx.fanfare(); }
+      else sfx.chest();
+    } else if (p.isBot && Math.hypot(p.x - (this.local?.x || 0), p.y - (this.local?.y || 0)) < 900) sfx.chest();
+    return true;
+  }
+
+  // E key: open chest first, else pick up loot
+  tryInteract(p) {
+    if (!p || p.dead || p.dropping || p.chute > 0) return false;
+    if ((p.useCd || 0) > 0) return false;
+    p.useCd = 0.25;
+    const c = this.nearestChest(p, 100);
+    if (c) return this.openChest(p, c);
+    const l = this.nearestLoot(p, 80);
+    if (l) return this.tryPickup(p, l);
+    return false;
+  }
+
+  interactTarget(p) {
+    if (!p || p.dead || p.dropping || p.chute > 0 || this.phase !== 'play') return null;
+    const c = this.nearestChest(p, 100);
+    if (c) return { chest: true, tier: c.tier };
+    return this.nearestLoot(p, 80);
+  }
+
   hitObstacle(x, y) {
-    // check walls first (rects), then circles — only solid & alive
-    for (const o of this.obstacles) {
+    const near = this.grid ? this.gridQuery(x - 60, y - 60, x + 60, y + 60) : this.obstacles;
+    for (const o of near) {
       if (o.destroyed) continue;
       if (o.type === 'wall') {
         if (x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h) return o;
+      } else if (o.type === 'chest' || o.type === 'chest_gold') {
+        continue; // bullets fly over chests
       } else if (o.solid !== false && o.r) {
         if (dist2(x, y, o.x, o.y) < o.r * o.r) return o;
       }
@@ -834,8 +1035,19 @@ export class Game {
   }
 
   collide(p) {
-    for (const o of this.obstacles) {
+    const near = this.grid ? this.gridQuery(p.x - p.r - 60, p.y - p.r - 60, p.x + p.r + 60, p.y + p.r + 60) : this.obstacles.concat(this.chests);
+    for (const o of near) {
       if (o.destroyed || o.solid === false) continue;
+      if (o.type === 'chest' || o.type === 'chest_gold') {
+        const d2 = dist2(p.x, p.y, o.x, o.y);
+        const rr = p.r + o.r * 0.75;
+        if (d2 < rr * rr && d2 > 0.01) {
+          const d = Math.sqrt(d2), push = rr - d;
+          p.x += ((p.x - o.x) / d) * push;
+          p.y += ((p.y - o.y) / d) * push;
+        }
+        continue;
+      }
       if (o.type === 'wall') {
         const nx = clamp(p.x, o.x, o.x + o.w), ny = clamp(p.y, o.y, o.y + o.h);
         const d2 = dist2(p.x, p.y, nx, ny);
@@ -922,12 +1134,31 @@ export class Game {
       ctx.fillText('🎪 LOBBY', lb.x + lb.w / 2, lb.y + 64);
     }
 
+    // house floors
+    if (this.houses) for (const h of this.houses) {
+      if (h.x + h.w / 2 < vx0 || h.x - h.w / 2 > vx1 || h.y + h.h / 2 < vy0 || h.y - h.h / 2 > vy1) continue;
+      ctx.fillStyle = '#d9b77c';
+      ctx.fillRect(h.x - h.w / 2, h.y - h.h / 2, h.w, h.h);
+      ctx.fillStyle = '#c9a668';
+      ctx.fillRect(h.x - h.w / 2 + 10, h.y - h.h / 2 + 10, h.w - 20, h.h - 20);
+      ctx.strokeStyle = 'rgba(90,60,20,0.25)'; ctx.lineWidth = 1.5;
+      for (let pl = h.x - h.w / 2 + 24; pl < h.x + h.w / 2; pl += 22) {
+        ctx.beginPath(); ctx.moveTo(pl, h.y - h.h / 2 + 10); ctx.lineTo(pl, h.y + h.h / 2 - 10); ctx.stroke();
+      }
+    }
+
     // obstacles
     for (const o of this.obstacles) {
       if (o.destroyed) continue;
       const ox = o.x + (o.w || 0) / 2, oy = o.y + (o.h || 0) / 2;
       if (ox < vx0 || ox > vx1 || oy < vy0 || oy > vy1) continue;
       this.drawObstacle(o);
+    }
+
+    // chests (basic 1x1 + golden 1x2 — the only gun source)
+    if (this.chests) for (const c of this.chests) {
+      if (c.x < vx0 || c.x > vx1 || c.y < vy0 || c.y > vy1) continue;
+      this.drawChest(c);
     }
 
     // POI name labels
@@ -946,8 +1177,16 @@ export class Game {
     ctx.lineCap = 'round';
     ctx.lineCap = 'round';
     for (const b of this.bullets) {
-      ctx.strokeStyle = '#fff8';
-      ctx.lineWidth = 4;
+      if (b.gun === 'grenade' || b.splash) {
+        ctx.fillStyle = '#2c3a2c';
+        ctx.beginPath(); ctx.arc(b.x, b.y, 7, 0, 7); ctx.fill();
+        ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = (this.time * 10 | 0) % 2 ? '#ffdd44' : '#ff5522';
+        ctx.beginPath(); ctx.arc(b.x + 5, b.y - 5, 3, 0, 7); ctx.fill();
+        continue;
+      }
+      ctx.strokeStyle = b.gun === 'crossbow' ? '#d8f0d8' : '#fff8';
+      ctx.lineWidth = b.gun === 'sniper' || b.gun === 'scout' ? 5 : 4;
       ctx.beginPath(); ctx.moveTo(b.x - b.vx * 0.012, b.y - b.vy * 0.012); ctx.lineTo(b.x, b.y); ctx.stroke();
       ctx.fillStyle = '#ffdd44';
       ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, 7); ctx.fill();
@@ -982,12 +1221,25 @@ export class Game {
     if (this.plane && this.plane.active) {
       const pl = this.plane;
       ctx.save(); ctx.translate(pl.x, pl.y); ctx.rotate(Math.atan2(pl.dy, pl.dx));
+      // cargo plane: fuselage, wings, tail, cockpit, spinning prop
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(4, 6, 74, 28, 0, 0, 7); ctx.fill();
       ctx.fillStyle = '#4a90e2';
-      ctx.beginPath(); ctx.ellipse(0, 0, 70, 26, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0, 0, 70, 25, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#6fb3f0';
+      ctx.beginPath(); ctx.ellipse(14, -4, 44, 13, 0, 0, 7); ctx.fill();
       ctx.fillStyle = '#3570b5';
-      ctx.fillRect(-10, -48, 22, 96);
+      ctx.fillRect(-14, -52, 24, 104);           // main wing
+      ctx.fillRect(-12, -50, 8, 100);
+      ctx.fillStyle = '#2c5a92';
+      ctx.fillRect(-64, -26, 18, 52);            // tail wing
+      ctx.fillRect(-66, -8, 22, 16);             // tail fin
+      ctx.fillStyle = '#dff1ff';                 // cockpit
+      ctx.beginPath(); ctx.ellipse(48, 0, 12, 9, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(180,220,255,0.7)';   // prop blur
+      ctx.fillRect(66, -20, 5, 40);
       ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('22', 0, 7);
+      ctx.fillText('22', -2, 7);
       ctx.restore();
     }
 
@@ -1026,16 +1278,23 @@ export class Game {
     const { ctx } = this;
     if (l.kind === 'weapon') {
       const rar = RARITIES[l.rarity || 0];
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath(); ctx.ellipse(l.x, l.y + 8, 26, 9, 0, 0, 7); ctx.fill();
+      const w = WEAPONS[l.weapon];
+      if (l.rarity === 4) {
+        ctx.fillStyle = 'rgba(255,210,63,0.25)';
+        ctx.beginPath(); ctx.arc(l.x, l.y, 34 + Math.sin(this.time * 4 + l.x) * 3, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(l.x, l.y + 10, 30, 9, 0, 0, 7); ctx.fill();
+      // rarity plate + gun silhouette lying on the ground
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      roundRect(ctx, l.x - 30, l.y - 14, 60, 26, 6); ctx.fill();
+      ctx.save(); ctx.translate(l.x - 4, l.y - 1); ctx.rotate(-0.35); ctx.scale(0.85, 0.85);
+      this.drawGunModel(l.weapon, rar.color, w.len);
+      ctx.restore();
       ctx.fillStyle = rar.color;
-      roundRect(ctx, l.x - 26, l.y - 10, 52, 22, 5); ctx.fill();
-      ctx.strokeStyle = '#0008'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.fillStyle = '#222'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(WEAPONS[l.weapon].name, l.x, l.y + 5);
-      ctx.fillStyle = '#111';
-      ctx.save(); ctx.translate(l.x, l.y - 16); ctx.rotate(-0.5);
-      ctx.fillRect(-16, -3, 32, 6); ctx.restore();
+      roundRect(ctx, l.x - 30, l.y + 12, 60, 15, 4); ctx.fill();
+      ctx.fillStyle = '#111'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(w.name, l.x, l.y + 23);
     } else if (l.kind === 'heal') {
       ctx.fillStyle = l.heal === 'bandage' ? '#fff' : l.heal === 'medkit' ? '#ff5555' : '#4ad2ff';
       roundRect(ctx, l.x - 12, l.y - 12, 24, 24, 6); ctx.fill();
@@ -1051,49 +1310,247 @@ export class Game {
     }
   }
 
+  drawChest(c) {
+    const { ctx } = this;
+    const gold = c.tier === 'golden';
+    const w = c.w, h = c.h;
+    // glow for golden
+    if (gold && !c.opened) {
+      ctx.fillStyle = 'rgba(255,210,63,0.22)';
+      ctx.beginPath(); ctx.arc(c.x, c.y, 52 + Math.sin(this.time * 3) * 5, 0, 7); ctx.fill();
+    }
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(c.x, c.y + h / 2, w / 2, 7, 0, 0, 7); ctx.fill();
+    // base
+    const grad = ctx.createLinearGradient(c.x, c.y - h / 2, c.x, c.y + h / 2);
+    if (gold) { grad.addColorStop(0, '#ffe27a'); grad.addColorStop(1, '#c9920e'); }
+    else { grad.addColorStop(0, '#b07a3f'); grad.addColorStop(1, '#7a4d1e'); }
+    ctx.fillStyle = grad;
+    roundRect(ctx, c.x - w / 2, c.y - h / 2 + 8, w, h - 8, 4); ctx.fill();
+    ctx.strokeStyle = gold ? '#7a5c00' : '#4a2d0e'; ctx.lineWidth = 2.5; ctx.stroke();
+    // lid
+    if (c.opened) {
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      roundRect(ctx, c.x - w / 2 + 3, c.y - h / 2 + 11, w - 6, 8, 3); ctx.fill();
+      ctx.save(); ctx.translate(c.x - w / 2 + 4, c.y - h / 2 + 10); ctx.rotate(-0.9);
+      ctx.fillStyle = gold ? '#c9920e' : '#7a4d1e';
+      ctx.fillRect(0, -14, w * 0.9, 12);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = gold ? '#fff0b0' : '#d09a55';
+      roundRect(ctx, c.x - w / 2, c.y - h / 2, w, 14, 5); ctx.fill();
+      ctx.strokeStyle = gold ? '#7a5c00' : '#4a2d0e'; ctx.lineWidth = 2; ctx.stroke();
+      // bands + lock
+      ctx.fillStyle = gold ? '#8a6d00' : '#3d3d3d';
+      ctx.fillRect(c.x - 4, c.y - h / 2, 8, h - 4);
+      ctx.beginPath(); ctx.arc(c.x, c.y + 2, gold ? 7 : 5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#222';
+      ctx.beginPath(); ctx.arc(c.x, c.y + 2, 2.2, 0, 7); ctx.fill();
+      if (gold) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('★', c.x - w / 2 + 11, c.y + 8);
+        ctx.fillText('★', c.x + w / 2 - 11, c.y + 8);
+      }
+    }
+  }
+
   drawObstacle(o) {
     const { ctx } = this;
     if (o.type === 'tree') {
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
-      ctx.beginPath(); ctx.ellipse(o.x, o.y + o.r * 0.7, o.r, o.r * 0.35, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = '#5a3a1a';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r * 0.28, 0, 7); ctx.fill();
-      ctx.fillStyle = o.pine ? '#1d4d18' : '#2f7a24';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, 7); ctx.fill();
-      ctx.fillStyle = o.pine ? '#2f7a24' : '#3f9c33';
-      ctx.beginPath(); ctx.arc(o.x - o.r * 0.25, o.y - o.r * 0.25, o.r * 0.6, 0, 7); ctx.fill();
+      const r = o.r;
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.75, r, r * 0.35, 0, 0, 7); ctx.fill();
+      if (o.pine) {
+        // pine: stacked triangles
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(o.x - 4, o.y + r * 0.1, 8, r * 0.5);
+        const layers = [[0, -0.75, 0.95], [0, -0.35, 1.1], [0, 0.05, 1.2]];
+        for (const [ox, oy, s] of layers) {
+          ctx.fillStyle = '#1d4d18';
+          ctx.beginPath();
+          ctx.moveTo(o.x + ox * r - r * s * 0.62, o.y + oy * r + r * 0.42);
+          ctx.lineTo(o.x + ox * r, o.y + oy * r - r * 0.5);
+          ctx.lineTo(o.x + ox * r + r * s * 0.62, o.y + oy * r + r * 0.42);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.10)';
+          ctx.beginPath();
+          ctx.moveTo(o.x + ox * r - r * s * 0.3, o.y + oy * r + r * 0.3);
+          ctx.lineTo(o.x + ox * r, o.y + oy * r - r * 0.5);
+          ctx.lineTo(o.x + ox * r, o.y + oy * r + r * 0.35);
+          ctx.closePath(); ctx.fill();
+        }
+      } else {
+        // broadleaf: trunk + layered canopy blobs
+        ctx.fillStyle = '#6b4423';
+        roundRect(ctx, o.x - r * 0.14, o.y - r * 0.1, r * 0.28, r * 0.75, 4); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(o.x - r * 0.14, o.y - r * 0.1, r * 0.1, r * 0.75);
+        const blobs = [[0, -0.15, 1.0, '#2f7a24'], [-0.42, 0.12, 0.72, '#2a6c20'], [0.42, 0.12, 0.72, '#35902b'], [0, -0.42, 0.62, '#3f9c33']];
+        for (const [ox, oy, s, c] of blobs) {
+          ctx.fillStyle = c;
+          ctx.beginPath(); ctx.arc(o.x + ox * r, o.y + oy * r, r * s * 0.62, 0, 7); ctx.fill();
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.beginPath(); ctx.arc(o.x - r * 0.22, o.y - r * 0.42, r * 0.3, 0, 7); ctx.fill();
+      }
     } else if (o.type === 'rock' || o.type === 'rocksmall') {
-      ctx.fillStyle = '#7a7a7a';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, 7); ctx.fill();
-      ctx.fillStyle = '#9a9a9a';
-      ctx.beginPath(); ctx.arc(o.x - o.r * 0.2, o.y - o.r * 0.2, o.r * 0.6, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.stroke();
+      const r = o.r;
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.8, r, r * 0.3, 0, 0, 7); ctx.fill();
+      // faceted polygon, shape seeded by id so it never shimmers
+      const n = 7, wob = ((o.id || 1) % 10) / 10;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + wob;
+        const rr = r * (0.82 + 0.25 * Math.abs(Math.sin(i * 3.7 + wob * 9)));
+        const px = o.x + Math.cos(a) * rr, py = o.y + Math.sin(a) * rr * 0.92;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      const rg = ctx.createLinearGradient(o.x - r, o.y - r, o.x + r, o.y + r);
+      rg.addColorStop(0, '#a8a8a8'); rg.addColorStop(1, '#6e6e6e');
+      ctx.fillStyle = rg; ctx.fill();
+      ctx.strokeStyle = '#4c4c4c'; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath(); ctx.ellipse(o.x - r * 0.25, o.y - r * 0.3, r * 0.32, r * 0.2, -0.5, 0, 7); ctx.fill();
     } else if (o.type === 'crate') {
-      ctx.fillStyle = '#c98f3d';
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + 20, 21, 6, 0, 0, 7); ctx.fill();
+      const cg = ctx.createLinearGradient(o.x, o.y - 20, o.x, o.y + 20);
+      cg.addColorStop(0, '#d89a4e'); cg.addColorStop(1, '#a06a28');
+      ctx.fillStyle = cg;
       roundRect(ctx, o.x - 20, o.y - 20, 40, 40, 4); ctx.fill();
-      ctx.strokeStyle = '#7a4d00'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = '#6b4211'; ctx.lineWidth = 3; ctx.stroke();
+      // planks
+      ctx.strokeStyle = 'rgba(107,66,17,0.7)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(o.x - 20, o.y - 7); ctx.lineTo(o.x + 20, o.y - 7); ctx.moveTo(o.x - 20, o.y + 7); ctx.lineTo(o.x + 20, o.y + 7); ctx.stroke();
+      // cross brace + corner brackets + nails
+      ctx.strokeStyle = '#7a4d00'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(o.x - 20, o.y - 20); ctx.lineTo(o.x + 20, o.y + 20); ctx.moveTo(o.x + 20, o.y - 20); ctx.lineTo(o.x - 20, o.y + 20); ctx.stroke();
+      ctx.fillStyle = '#5c5c5c';
+      for (const [nx, ny] of [[-14, -14], [14, -14], [-14, 14], [14, 14]]) {
+        ctx.beginPath(); ctx.arc(o.x + nx, o.y + ny, 2.5, 0, 7); ctx.fill();
+      }
     } else if (o.type === 'barrel') {
-      ctx.fillStyle = '#b8452e';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#6e2415'; ctx.lineWidth = 3; ctx.stroke();
+      const r = o.r;
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.9, r, r * 0.3, 0, 0, 7); ctx.fill();
+      const bg = ctx.createLinearGradient(o.x - r, 0, o.x + r, 0);
+      bg.addColorStop(0, '#8e2f1c'); bg.addColorStop(0.5, '#c8502f'); bg.addColorStop(1, '#7e2818');
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.arc(o.x, o.y, r, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#5c1a0e'; ctx.lineWidth = 2.5; ctx.stroke();
+      // metal bands + staves
+      ctx.strokeStyle = '#3f3f3f'; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.arc(o.x, o.y, r * 0.98, -0.5, 0.5); ctx.stroke();
+      ctx.beginPath(); ctx.arc(o.x, o.y, r * 0.98, Math.PI - 0.5, Math.PI + 0.5); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1.5;
+      for (const off of [-0.5, 0, 0.5]) {
+        ctx.beginPath(); ctx.moveTo(o.x + off * r, o.y - r * 0.86); ctx.lineTo(o.x + off * r, o.y + r * 0.86); ctx.stroke();
+      }
       ctx.fillStyle = '#ffcf3f';
-      ctx.beginPath(); ctx.arc(o.x, o.y, 5, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(o.x, o.y, 5.5, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#7a4d00'; ctx.lineWidth = 1.5; ctx.stroke();
     } else if (o.type === 'bush') {
-      ctx.fillStyle = 'rgba(47,122,36,0.85)';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, 7); ctx.fill();
-      ctx.fillStyle = 'rgba(63,156,51,0.9)';
-      ctx.beginPath(); ctx.arc(o.x - 6, o.y - 6, o.r * 0.6, 0, 7); ctx.fill();
+      const r = o.r;
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.7, r, r * 0.3, 0, 0, 7); ctx.fill();
+      const puffs = [[0, 0, 1, '#2f7a24'], [-0.5, 0.1, 0.66, '#35902b'], [0.5, 0.1, 0.66, '#2a6c20'], [-0.22, -0.35, 0.6, '#3f9c33'], [0.25, -0.3, 0.55, '#46a838']];
+      for (const [ox, oy, s, c] of puffs) {
+        ctx.fillStyle = c;
+        ctx.beginPath(); ctx.arc(o.x + ox * r, o.y + oy * r, r * s * 0.55, 0, 7); ctx.fill();
+      }
     } else if (o.type === 'wall') {
-      ctx.fillStyle = '#c9a06a';
+      const wg = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+      wg.addColorStop(0, '#d4ab72'); wg.addColorStop(1, '#a87f4e');
+      ctx.fillStyle = wg;
       ctx.fillRect(o.x, o.y, o.w, o.h);
-      ctx.fillStyle = '#a87f4e';
-      ctx.fillRect(o.x, o.y, o.w, 5);
+      // plank seams
+      ctx.strokeStyle = 'rgba(107,74,38,0.55)'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (o.w > o.h) { for (let py = o.y + 14; py < o.y + o.h; py += 14) { ctx.moveTo(o.x, py); ctx.lineTo(o.x + o.w, py); } }
+      else { for (let px = o.x + 14; px < o.x + o.w; px += 14) { ctx.moveTo(px, o.y); ctx.lineTo(px, o.y + o.h); } }
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(o.x, o.y, o.w, 4);
       ctx.strokeStyle = '#6b4a26'; ctx.lineWidth = 2;
       ctx.strokeRect(o.x, o.y, o.w, o.h);
       // posts
       ctx.fillStyle = '#8a5a2b';
       ctx.fillRect(o.x - 5, o.y - 5, 12, 12);
+    }
+  }
+
+  // distinct gun silhouettes, drawn facing +x from the hands
+  drawGunModel(gun, rarColor, L) {
+    const { ctx } = this;
+    const body = '#3a3a3f', dark = '#222228', wood = '#7a4d1e';
+    const tip = (x, w = 8) => { ctx.fillStyle = rarColor; ctx.fillRect(x, -4.5, w, 9); };
+    ctx.fillStyle = body;
+    switch (gun) {
+      case 'pistol':
+        ctx.fillRect(10, -4, L * 0.62, 8);
+        ctx.fillStyle = wood; ctx.fillRect(13, 3, 7, 11);
+        tip(10 + L * 0.62 - 2, 6); break;
+      case 'revolver':
+        ctx.fillRect(10, -3.5, L * 0.55, 7);
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(21, 0, 6.5, 0, 7); ctx.fill();
+        ctx.fillStyle = wood; ctx.fillRect(13, 4, 7, 11);
+        tip(10 + L * 0.55 - 2, 6); break;
+      case 'smg':
+        ctx.fillRect(10, -4.5, L * 0.6, 9);
+        ctx.fillRect(1, -3, 10, 6);
+        ctx.fillStyle = dark; ctx.fillRect(23, 3, 6, 12);
+        tip(10 + L * 0.6 - 2); break;
+      case 'shotgun':
+        ctx.fillRect(10, -5, L * 0.72, 4.5); ctx.fillRect(10, 0.5, L * 0.72, 4.5);
+        ctx.fillStyle = wood; ctx.fillRect(15, -6, 13, 12);
+        ctx.fillStyle = rarColor; ctx.fillRect(10 + L * 0.72 - 3, -5, 7, 10); break;
+      case 'ar': case 'burst':
+        ctx.fillRect(10, -3.5, L * 0.78, 7);
+        ctx.fillStyle = wood; ctx.fillRect(0, -4, 11, 8);
+        ctx.fillStyle = dark;
+        ctx.save(); ctx.translate(25, 3); ctx.rotate(0.35); ctx.fillRect(-3, 0, 7, 13); ctx.restore();
+        ctx.fillRect(20, -9, 7, 6);
+        if (gun === 'burst') { ctx.fillStyle = rarColor; ctx.beginPath(); ctx.arc(23.5, -6, 2, 0, 7); ctx.fill(); }
+        tip(10 + L * 0.78 - 2); break;
+      case 'lmg':
+        ctx.fillRect(8, -5.5, L * 0.6, 11);
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(24, 5, 8, 0, 7); ctx.fill();
+        ctx.fillStyle = wood; ctx.fillRect(0, -4, 10, 8);
+        tip(8 + L * 0.6 - 2); break;
+      case 'minigun':
+        ctx.fillStyle = dark; ctx.fillRect(5, -7, 15, 14);
+        ctx.fillStyle = body;
+        for (const oy of [-6, -1.5, 3]) ctx.fillRect(12, oy, L * 0.68, 4);
+        ctx.fillStyle = wood; ctx.fillRect(0, -3, 7, 10);
+        tip(12 + L * 0.68 - 2, 9); break;
+      case 'scout': case 'sniper': {
+        const long = gun === 'sniper';
+        ctx.fillRect(8, -2.5, L * (long ? 0.95 : 0.85), 5);
+        ctx.fillStyle = wood; ctx.fillRect(2, -4, 10, 8);
+        ctx.fillStyle = dark; ctx.fillRect(17, -9, 11, 5);
+        ctx.fillRect(20, -4, 2, 3); ctx.fillRect(26, -4, 2, 3);
+        tip(8 + L * (long ? 0.95 : 0.85) - 2, 6); break;
+      }
+      case 'crossbow':
+        ctx.fillStyle = wood; ctx.fillRect(8, -3, L * 0.6, 6);
+        ctx.strokeStyle = dark; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(10 + L * 0.42, -13); ctx.quadraticCurveTo(10 + L * 0.62, 0, 10 + L * 0.42, 13); ctx.stroke();
+        ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(10 + L * 0.42, -13); ctx.lineTo(16, 0); ctx.lineTo(10 + L * 0.42, 13); ctx.stroke();
+        ctx.fillStyle = '#999'; ctx.fillRect(12, -1.5, L * 0.55, 3);
+        tip(12 + L * 0.55 - 2, 5); break;
+      case 'grenade':
+        ctx.fillRect(10, -6, L * 0.55, 12);
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(25, 8, 7.5, 0, 7); ctx.fill();
+        ctx.fillStyle = wood; ctx.fillRect(12, 5, 7, 10);
+        tip(10 + L * 0.55 - 2, 10); break;
+      default:
+        ctx.fillRect(10, -4, L * 0.7, 8);
+        tip(10 + L * 0.7 - 2); break;
     }
   }
 
@@ -1121,25 +1578,34 @@ export class Game {
     const slot = p.slots[p.slotI];
     const wlen = slot ? (WEAPONS[slot.gun].len || 26) : 22;
     ctx.save(); ctx.rotate(ga);
-    if (slot && slot.gun !== 'fists') {
-      ctx.fillStyle = '#333';
-      ctx.fillRect(10, -4, wlen, 9);
-      ctx.fillStyle = RARITIES[slot.rarity || 0].color;
-      ctx.fillRect(10 + wlen - 8, -4, 8, 9);
-    }
+    if (slot && slot.gun !== 'fists') this.drawGunModel(slot.gun, RARITIES[slot.rarity || 0].color, wlen);
     // hands
     ctx.fillStyle = '#f2c89b';
     ctx.beginPath(); ctx.arc(12, -8, 7, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(12, 8, 7, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,70,30,0.5)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(12, -8, 7, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(12, 8, 7, 0, 7); ctx.stroke();
     ctx.restore();
-    // body circle
-    ctx.fillStyle = p.color;
+    // body circle with soft gradient
+    const bg2 = ctx.createRadialGradient(-6, -8, 4, 0, 0, p.r + 2);
+    bg2.addColorStop(0, '#ffffff55');
+    bg2.addColorStop(0.35, p.color);
+    bg2.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = bg2;
     ctx.beginPath(); ctx.arc(0, 0, p.r, 0, 7); ctx.fill();
     ctx.lineWidth = isMe ? 4 : 3; ctx.strokeStyle = isMe ? '#ffd23f' : 'rgba(0,0,0,0.45)';
     ctx.stroke();
-    // face direction nub
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.arc(Math.cos(ga) * 10, Math.sin(ga) * 10, 5, 0, 7); ctx.fill();
+    // eyes look toward aim
+    const ex = Math.cos(ga), ey = Math.sin(ga);
+    const px2 = -ey, py2 = ex;
+    for (const s of [-1, 1]) {
+      const cxp = ex * 9 + px2 * 7 * s, cyp = ey * 9 + py2 * 7 * s;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(cxp, cyp, 5.5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(cxp + ex * 2, cyp + ey * 2, 2.6, 0, 7); ctx.fill();
+    }
     // shield ring
     if (p.shield > 0) {
       ctx.strokeStyle = 'rgba(74,210,255,0.9)'; ctx.lineWidth = 3;

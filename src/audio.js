@@ -49,6 +49,8 @@ export class SoundFX {
   chest() { this.noise(0.15, 0.3, 700); this.tone(180, 0.15, 'triangle', 0.2, 80); }
   gas() { this.tone(90, 0.4, 'sawtooth', 0.08, -20); }
   win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.3, 'triangle', 0.2), i * 140)); }
+  fanfare() { [659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.18, 'triangle', 0.18), i * 90)); }
+  boom() { this.noise(0.4, 0.5, 500); this.tone(90, 0.4, 'sawtooth', 0.3, -50); }
   death() { this.tone(300, 0.5, 'sawtooth', 0.2, -240); }
   ui() { this.tone(600, 0.05, 'sine', 0.12); }
 }
