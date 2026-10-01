@@ -91,6 +91,7 @@ body{background:linear-gradient(135deg,#4c8a1e 0%,#7ab648 35%,#5da500 60%,#3d6b1
 #netStat.bad{color:#ff8a8a}
 #killCount{color:#ffd23f;margin-left:8px}
 #minimap{position:absolute;top:10px;right:10px;border-radius:10px;border:2px solid #0008;background:#7ab648}
+#fps{position:absolute;top:186px;right:10px;background:rgba(0,0,0,.45);color:#8be000;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700}
 #interactTip{position:absolute;left:50%;bottom:170px;transform:translateX(-50%);background:#000a;color:#fff;padding:6px 12px;border-radius:8px}
 #centerMsg{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);font-size:34px;font-weight:900;color:#fff;text-shadow:0 3px 0 #000,0 0 20px #000}
 #bottombar{position:absolute;bottom:10px;left:10px;right:10px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px}

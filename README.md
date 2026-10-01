@@ -32,7 +32,8 @@ Mobile: left-half virtual stick moves, right-half aims + fires.
 - 9000px map with 13 named POIs (Mansion, Lab, Farm…), 30 enterable **houses with doors + roofs** — interiors stay hidden until you're inside or at the door, guns come **only from chests**: 🎁 basic (1×1) and 💛 golden (1×2, better loot, glow) — in houses, POIs and the wilds. Press **E** to open. Ground loot and crates give ammo/heals only.
 - 13 weapons: Fists, Pistol, Revolver, SMG, Shotgun, Assault, Burst, LMG, Minigun (slows you down), Scout, Sniper, Crossbow, grenade **Launcher** (AoE explosions) — each with a distinct shaded in-hand model (also shown in the HUD slots) and 5 rarity tiers
 - Bots: trickle into the lobby gradually, scatter-drop across the map, seek chests when unarmed, unstick themselves from walls, loot scoring, zone rotation, strafing, healing, crate-breaking. Bots never chat.
-- Custom chat: press **Enter**, type your message, **Enter** again to send (**Esc** cancels). Shown as a bubble + in the chat log, relayed to P2P friends.
+- Custom chat: press **Enter**, type your message, **Enter** again to send (**Esc** cancels). Shown as a bubble + in the chat log, relayed to other players.
+- Performance: cached scenery gradients, throttled minimap, particle cap, an on-screen FPS meter, and automatic quality scaling (drops shading/shadows if FPS sags, recovers when smooth). Bullets are substepped so fast rounds can't tunnel through thin walls.
 - Procedural WebAudio SFX (no assets)
 
 ## Accounts (login system)
@@ -68,7 +69,7 @@ npm start --prefix server        # ws://localhost:8081 (or $PORT), /health for c
 
   [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/uxp70/zombsclone-io)
 
-  Then put your `wss://<your-app>.onrender.com` URL in the menu's server field (it remembers it). `render.yaml` + `/health` checks are already in the repo.
+  Then put your `wss://<your-app>.onrender.com` URL in the menu's server field (it remembers it). `render.yaml` + `/health` checks are already in the repo. The service runs in **Frankfurt** (`region: frankfurt` in `render.yaml`) for low EU ping — change it if your players are elsewhere.
 - Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 10Hz; clients interpolate between them and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
 
 ## Run locally

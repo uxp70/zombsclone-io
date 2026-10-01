@@ -2,6 +2,7 @@ services:
   - type: web
     name: zombsclone-server
     runtime: node
+    region: frankfurt
     buildCommand: npm install --prefix server
     startCommand: npm start --prefix server
     plan: free

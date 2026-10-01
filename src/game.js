@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=124';
-import { generateWorld } from './world.js?v=124';
-import { makeBotController } from './bots.js?v=124';
-import { sfx } from './audio.js?v=124';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=125';
+import { generateWorld } from './world.js?v=125';
+import { makeBotController } from './bots.js?v=125';
+import { sfx } from './audio.js?v=125';
 
 let PID = 1;
 
@@ -170,6 +170,22 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.05, (t - this.last) / 1000 || 0.016);
       this.last = t;
+      // fps meter + automatic quality scaling for weak hardware
+      const nowT = performance.now();
+      const inst = 1000 / Math.max(1, nowT - (this._lastFrameT || nowT));
+      this._lastFrameT = nowT;
+      this._fpsEMA = lerp(this._fpsEMA || 60, Math.min(inst, 120), 0.06);
+      this._qT = (this._qT || 0) + dt;
+      if (this._qT > 2) {
+        this._qT = 0;
+        if (this._fpsEMA < 45 && this.quality < 2) { this.quality++; this._qUp = 0; }
+        else if (this._fpsEMA > 57 && this.quality > 0) {
+          this._qUp = (this._qUp || 0) + 1;
+          if (this._qUp >= 5) { this.quality--; this._qUp = 0; }
+        } else this._qUp = 0;
+        const fp = document.getElementById('fps');
+        if (fp) fp.textContent = Math.round(this._fpsEMA) + 'fps' + (this.quality ? ' Q' + this.quality : '');
+      }
       try {
         if (!this.isRemote) this.update(dt); else this.updateRemote(dt);
         this.render();
@@ -779,39 +795,44 @@ export class Game {
       }
     }
 
-    // bullets
+    // bullets (substepped so fast rounds can't tunnel through thin walls)
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
-      const step = Math.hypot(b.vx, b.vy) * dt;
-      b.x += b.vx * dt; b.y += b.vy * dt; b.traveled += step;
-      let dead = b.traveled > b.range || b.x < 0 || b.y < 0 || b.x > WORLD_SIZE || b.y > WORLD_SIZE;
-      if (b.splash && dead) { this.explode(b.x, b.y, b.splash, b.dmg, b.from); }
-      const hit = !dead ? this.hitObstacle(b.x, b.y) : null;
-      if (hit) {
-        if (b.splash) this.explode(b.x, b.y, b.splash, b.dmg, b.from);
-        else this.damageObstacle(hit, b.dmg, this.players.find((p) => p.id === b.from));
-        this.particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, t: 0.12, max: 0.12, c: '#fff', r: 3 });
-        dead = true;
-      }
-      if (!dead) {
-        if (b.splash) {
-          // lobbed grenades detonate on contact
-          for (const p of this.players) {
+      const totalStep = Math.hypot(b.vx, b.vy) * dt;
+      const nSub = Math.max(1, Math.ceil(totalStep / 18));
+      let dead = false;
+      for (let s = 0; s < nSub && !dead; s++) {
+        const f = dt / nSub;
+        b.x += b.vx * f; b.y += b.vy * f; b.traveled += totalStep / nSub;
+        dead = b.traveled > b.range || b.x < 0 || b.y < 0 || b.x > WORLD_SIZE || b.y > WORLD_SIZE;
+        if (b.splash && dead) { this.explode(b.x, b.y, b.splash, b.dmg, b.from); break; }
+        const hit = !dead ? this.hitObstacle(b.x, b.y) : null;
+        if (hit) {
+          if (b.splash) this.explode(b.x, b.y, b.splash, b.dmg, b.from);
+          else this.damageObstacle(hit, b.dmg, this.players.find((p) => p.id === b.from));
+          this.particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, t: 0.12, max: 0.12, c: '#fff', r: 3 });
+          dead = true; break;
+        }
+        if (!dead) {
+          if (b.splash) {
+            // lobbed grenades detonate on contact
+            for (const p of this.players) {
+              if (p.dead || p.dropping || p.id === b.from) continue;
+              const shooter = this.players.find((s) => s.id === b.from);
+              if (shooter && shooter.team && p.team && shooter.team === p.team) continue;
+              if (dist2(b.x, b.y, p.x, p.y) < 30 * 30) {
+                this.explode(b.x, b.y, b.splash, b.dmg, b.from);
+                dead = true; break;
+              }
+            }
+          } else for (const p of this.players) {
             if (p.dead || p.dropping || p.id === b.from) continue;
             const shooter = this.players.find((s) => s.id === b.from);
             if (shooter && shooter.team && p.team && shooter.team === p.team) continue;
-            if (dist2(b.x, b.y, p.x, p.y) < 30 * 30) {
-              this.explode(b.x, b.y, b.splash, b.dmg, b.from);
+            if (dist2(b.x, b.y, p.x, p.y) < (p.r + 3) * (p.r + 3)) {
+              this.damage(p, b.dmg, shooter);
               dead = true; break;
             }
-          }
-        } else for (const p of this.players) {
-          if (p.dead || p.dropping || p.id === b.from) continue;
-          const shooter = this.players.find((s) => s.id === b.from);
-          if (shooter && shooter.team && p.team && shooter.team === p.team) continue;
-          if (dist2(b.x, b.y, p.x, p.y) < (p.r + 3) * (p.r + 3)) {
-            this.damage(p, b.dmg, shooter);
-            dead = true; break;
           }
         }
       }
@@ -819,6 +840,7 @@ export class Game {
     }
 
     // particles + chats decay
+    if (this.particles.length > 320) this.particles.splice(0, this.particles.length - 320);
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const pt = this.particles[i];
       pt.t -= dt; pt.x += (pt.vx || 0) * dt; pt.y += (pt.vy || 0) * dt;
@@ -1325,9 +1347,11 @@ export class Game {
       const rx = h.x - h.w / 2 - 18, ry = h.y - h.h / 2 - 18, rw = h.w + 36, rh = h.h + 36;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.fillRect(rx + 6, ry + 8, rw, rh);
-      const roof = ctx.createLinearGradient(rx, ry, rx, ry + rh);
-      roof.addColorStop(0, '#c25e3a'); roof.addColorStop(1, '#8e3a20');
-      ctx.fillStyle = roof;
+      ctx.fillStyle = this.grad('roof' + h.x + '_' + h.y, () => {
+        const roof = ctx.createLinearGradient(rx, ry, rx, ry + rh);
+        roof.addColorStop(0, '#c25e3a'); roof.addColorStop(1, '#8e3a20');
+        return roof;
+      });
       ctx.fillRect(rx, ry, rw, rh);
       ctx.strokeStyle = 'rgba(120,40,20,0.6)'; ctx.lineWidth = 2;
       for (let sy = ry + 18; sy < ry + rh; sy += 20) {
@@ -1417,7 +1441,7 @@ export class Game {
     // shake
     if (this._shake > 0) { this._shake *= 0.85; if (this._shake < 0.3) this._shake = 0; }
 
-    this.drawMinimap();
+    this.drawMinimapThrottled();
     if (this.bigMap) this.drawBigMap();
   }
 
@@ -1470,10 +1494,12 @@ export class Game {
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(c.x, c.y + h / 2, w / 2, 7, 0, 0, 7); ctx.fill();
     // base
-    const grad = ctx.createLinearGradient(c.x, c.y - h / 2, c.x, c.y + h / 2);
-    if (gold) { grad.addColorStop(0, '#ffe27a'); grad.addColorStop(1, '#c9920e'); }
-    else { grad.addColorStop(0, '#b07a3f'); grad.addColorStop(1, '#7a4d1e'); }
-    ctx.fillStyle = grad;
+    ctx.fillStyle = this.grad('chest' + c.id + (c.opened ? 'o' : 'c'), () => {
+      const grad = ctx.createLinearGradient(c.x, c.y - h / 2, c.x, c.y + h / 2);
+      if (gold) { grad.addColorStop(0, '#ffe27a'); grad.addColorStop(1, '#c9920e'); }
+      else { grad.addColorStop(0, '#b07a3f'); grad.addColorStop(1, '#7a4d1e'); }
+      return grad;
+    });
     roundRect(ctx, c.x - w / 2, c.y - h / 2 + 8, w, h - 8, 4); ctx.fill();
     ctx.strokeStyle = gold ? '#7a5c00' : '#4a2d0e'; ctx.lineWidth = 2.5; ctx.stroke();
     // lid
@@ -1505,10 +1531,13 @@ export class Game {
 
   drawObstacle(o) {
     const { ctx } = this;
+    const Q = this.quality | 0;
     if (o.type === 'tree') {
       const r = o.r;
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.75, r, r * 0.35, 0, 0, 7); ctx.fill();
+      if (Q < 2) {
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.75, r, r * 0.35, 0, 0, 7); ctx.fill();
+      }
       if (o.pine) {
         // pine: stacked triangles
         ctx.fillStyle = '#5a3a1a';
@@ -1544,8 +1573,10 @@ export class Game {
       }
     } else if (o.type === 'rock' || o.type === 'rocksmall') {
       const r = o.r;
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
-      ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.8, r, r * 0.3, 0, 0, 7); ctx.fill();
+      if (Q < 2) {
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath(); ctx.ellipse(o.x, o.y + r * 0.8, r, r * 0.3, 0, 0, 7); ctx.fill();
+      }
       // faceted polygon, shape seeded by id so it never shimmers
       const n = 7, wob = ((o.id || 1) % 10) / 10;
       ctx.beginPath();
@@ -1556,9 +1587,12 @@ export class Game {
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
       ctx.closePath();
-      const rg = ctx.createLinearGradient(o.x - r, o.y - r, o.x + r, o.y + r);
-      rg.addColorStop(0, '#a8a8a8'); rg.addColorStop(1, '#6e6e6e');
-      ctx.fillStyle = rg; ctx.fill();
+      ctx.fillStyle = Q >= 1 ? '#8a8a8a' : this.grad('rock' + o.id, () => {
+        const rg = ctx.createLinearGradient(o.x - r, o.y - r, o.x + r, o.y + r);
+        rg.addColorStop(0, '#a8a8a8'); rg.addColorStop(1, '#6e6e6e');
+        return rg;
+      });
+      ctx.fill();
       ctx.strokeStyle = '#4c4c4c'; ctx.lineWidth = 2.5; ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
       ctx.beginPath(); ctx.ellipse(o.x - r * 0.25, o.y - r * 0.3, r * 0.32, r * 0.2, -0.5, 0, 7); ctx.fill();
@@ -1610,9 +1644,11 @@ export class Game {
         ctx.beginPath(); ctx.arc(o.x + ox * r, o.y + oy * r, r * s * 0.55, 0, 7); ctx.fill();
       }
     } else if (o.type === 'wall') {
-      const wg = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
-      wg.addColorStop(0, '#d4ab72'); wg.addColorStop(1, '#a87f4e');
-      ctx.fillStyle = wg;
+      ctx.fillStyle = this.grad('wall' + o.id, () => {
+        const wg = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+        wg.addColorStop(0, '#d4ab72'); wg.addColorStop(1, '#a87f4e');
+        return wg;
+      });
       ctx.fillRect(o.x, o.y, o.w, o.h);
       // plank seams
       ctx.strokeStyle = 'rgba(107,74,38,0.55)'; ctx.lineWidth = 1.5;
@@ -1628,6 +1664,18 @@ export class Game {
       ctx.fillStyle = '#8a5a2b';
       ctx.fillRect(o.x - 5, o.y - 5, 12, 12);
     }
+  }
+
+  // cached gradients: static scenery shares fill objects instead of
+  // rebuilding expensive gradients every frame (big FPS win)
+  grad(key, make) {
+    this._gradCache = this._gradCache || new Map();
+    let g = this._gradCache.get(key);
+    if (!g) {
+      g = make();
+      if (this._gradCache.size < 600) this._gradCache.set(key, g);
+    }
+    return g;
   }
 
   // distinct gun silhouettes, drawn facing +x from the hands (origin ≈ grip)
@@ -1774,12 +1822,19 @@ export class Game {
     ctx.beginPath(); ctx.arc(12, -8, 7, 0, 7); ctx.stroke();
     ctx.beginPath(); ctx.arc(12, 8, 7, 0, 7); ctx.stroke();
     ctx.restore();
-    // body circle with soft gradient
-    const bg2 = ctx.createRadialGradient(-6, -8, 4, 0, 0, p.r + 2);
-    bg2.addColorStop(0, '#ffffff55');
-    bg2.addColorStop(0.35, p.color);
-    bg2.addColorStop(1, 'rgba(0,0,0,0.28)');
-    ctx.fillStyle = bg2;
+    // body circle with soft gradient (flat at low quality)
+    const Qp = this.quality | 0;
+    if (Qp >= 2) {
+      ctx.fillStyle = p.color;
+    } else {
+      ctx.fillStyle = this.grad('pb' + p.color + '_' + p.r, () => {
+        const bg2 = ctx.createRadialGradient(-6, -8, 4, 0, 0, p.r + 2);
+        bg2.addColorStop(0, '#ffffff55');
+        bg2.addColorStop(0.35, p.color);
+        bg2.addColorStop(1, 'rgba(0,0,0,0.28)');
+        return bg2;
+      });
+    }
     ctx.beginPath(); ctx.arc(0, 0, p.r, 0, 7); ctx.fill();
     ctx.lineWidth = isMe ? 4 : 3; ctx.strokeStyle = isMe ? '#ffd23f' : 'rgba(0,0,0,0.45)';
     ctx.stroke();
@@ -1829,6 +1884,12 @@ export class Game {
     this.drawPlayer({ ...p, dropping: false, chute: 0 });
     ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
     if (p === this.local) ctx.fillText('SPACE / F to drop!', p.x, p.y - 52);
+  }
+
+  drawMinimapThrottled() {
+    this._frame = (this._frame || 0) + 1;
+    if (this._frame % ((this.quality | 0) >= 1 ? 6 : 3) !== 0) return;
+    this.drawMinimap();
   }
 
   drawMinimap() {
