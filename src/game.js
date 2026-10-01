@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=130';
-import { generateWorld } from './world.js?v=130';
-import { makeBotController } from './bots.js?v=130';
-import { sfx } from './audio.js?v=130';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=131';
+import { generateWorld } from './world.js?v=131';
+import { makeBotController } from './bots.js?v=131';
+import { sfx } from './audio.js?v=131';
 
 let PID = 1;
 
@@ -99,6 +99,8 @@ export class Game {
   // ---------- setup ----------
   start({ name = 'Prodigy', mode = 'solo', botCount = 70, seed = (Math.random() * 1e9) | 0, net = null, isRemote = false, teamId = null, dedicated = false } = {}) {
     this.stop();
+    // huge screens start one quality notch down (auto-recovers if smooth)
+    if ((this.quality | 0) === 0 && typeof window !== 'undefined' && window.innerWidth * window.innerHeight > 3200000) this.setQuality(1);
     this.mode = mode; this.net = net; this.isRemote = isRemote; this.dedicated = dedicated;
     const w = generateWorld(seed);
     this.seed = seed;
@@ -593,12 +595,12 @@ export class Game {
     // cam.zoom is device-px based so resolution scaling preserves the view
     const zoom = this.baseZoom * (this.pxScale || 1) * zoomMul;
     this.cam.zoom = lerp(this.cam.zoom || zoom, zoom, Math.min(1, dt * 4));
-    const tx = L.x - this.cv.width / this.cam.zoom / 2;
-    const ty = L.y - this.cv.height / this.cam.zoom / 2;
-    if (Math.hypot(this.cam.x - tx, this.cam.y - ty) > 2500) { this.cam.x = tx; this.cam.y = ty; }
-    else {
-      this.cam.x = lerp(this.cam.x, tx, Math.min(1, dt * 8));
-      this.cam.y = lerp(this.cam.y, ty, Math.min(1, dt * 8));
+    // hard-locked to the player (lerped cameras feel floaty) + trauma shake
+    this.cam.x = L.x - this.cv.width / this.cam.zoom / 2;
+    this.cam.y = L.y - this.cv.height / this.cam.zoom / 2;
+    if (this._shake > 0) {
+      this.cam.x += (Math.random() - 0.5) * this._shake;
+      this.cam.y += (Math.random() - 0.5) * this._shake;
     }
   }
 
@@ -1030,6 +1032,14 @@ export class Game {
     }
     // self prediction + others interpolation (smooth 15Hz snapshots)
     const me = this.local && this.players.find((x) => x.name === this.local.name && !x.dead);
+    // instant shooting feedback for your own clicks (cosmetic — server owns damage)
+    if (me && !me.dead && !me.dropping && me.chute <= 0 && this.mouse.down && !this._shotHeld) {
+      this._shotHeld = true;
+      try { sfx.shoot(me.gun || 'pistol'); } catch { }
+      const a = Math.atan2(me.aimY - me.y, me.aimX - me.x);
+      this.particles.push({ x: me.x + Math.cos(a) * 30, y: me.y + Math.sin(a) * 30, vx: 0, vy: 0, t: 0.08, max: 0.08, c: '#ffdd55', r: 6 });
+    }
+    if (!this.mouse.down) this._shotHeld = false;
     for (const p of this.players) {
       if (p.dead || p.sx === undefined) continue;
       if (p === me && !p.dropping && p.chute <= 0) {
@@ -1352,11 +1362,16 @@ export class Game {
       ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, 7); ctx.fill();
     }
 
-    // players sorted by y
+    // players sorted by y (names + eyes only near the camera — far ones stay cheap dots)
     const ps = [...this.players].filter((p) => !p.dead && !p.dropping).sort((a, b) => a.y - b.y);
+    const camCX = this.cam.x + this.cv.width / this.cam.zoom / 2;
+    const camCY = this.cam.y + this.cv.height / this.cam.zoom / 2;
     // dropping (parachute) on top
     for (const p of this.players) if (!p.dead && p.dropping) this.drawDropping(p);
-    for (const p of ps) this.drawPlayer(p);
+    for (const p of ps) {
+      const dx = p.x - camCX, dy = p.y - camCY;
+      this.drawPlayer(p, dx * dx + dy * dy < 1500 * 1500);
+    }
 
     // particles
     for (const pt of this.particles) {
@@ -1826,7 +1841,7 @@ export class Game {
     return url;
   }
 
-  drawPlayer(p) {
+  drawPlayer(p, near = true) {
     const { ctx } = this;
     const isMe = p === this.local;
     // shadow
@@ -1875,15 +1890,17 @@ export class Game {
     ctx.beginPath(); ctx.arc(0, 0, p.r, 0, 7); ctx.fill();
     ctx.lineWidth = isMe ? 4 : 3; ctx.strokeStyle = isMe ? '#ffd23f' : 'rgba(0,0,0,0.45)';
     ctx.stroke();
-    // eyes look toward aim
-    const ex = Math.cos(ga), ey = Math.sin(ga);
-    const px2 = -ey, py2 = ex;
-    for (const s of [-1, 1]) {
-      const cxp = ex * 9 + px2 * 7 * s, cyp = ey * 9 + py2 * 7 * s;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(cxp, cyp, 5.5, 0, 7); ctx.fill();
-      ctx.fillStyle = '#1a1a1a';
-      ctx.beginPath(); ctx.arc(cxp + ex * 2, cyp + ey * 2, 2.6, 0, 7); ctx.fill();
+    // eyes look toward aim (near players only)
+    if (near) {
+      const ex = Math.cos(ga), ey = Math.sin(ga);
+      const px2 = -ey, py2 = ex;
+      for (const s of [-1, 1]) {
+        const cxp = ex * 9 + px2 * 7 * s, cyp = ey * 9 + py2 * 7 * s;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(cxp, cyp, 5.5, 0, 7); ctx.fill();
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath(); ctx.arc(cxp + ex * 2, cyp + ey * 2, 2.6, 0, 7); ctx.fill();
+      }
     }
     // shield ring
     if (p.shield > 0) {
@@ -1899,7 +1916,8 @@ export class Game {
       ctx.beginPath(); ctx.arc(0, 0, p.r + 8, -1.57, -1.57 + 6.28 * 0.5); ctx.stroke();
     }
     ctx.restore();
-    // name + hp
+    // name + hp (near players only — far ones stay cheap dots)
+    if (!near) return;
     ctx.textAlign = 'center';
     ctx.font = 'bold 13px sans-serif';
     ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
