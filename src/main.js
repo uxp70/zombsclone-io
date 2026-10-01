@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=119';
-import { P2PNet } from './net.js?v=119';
-import { WEAPONS } from './config.js?v=119';
-import { sfx } from './audio.js?v=119';
-import { auth } from './auth.js?v=119';
-window.__ZC_BUILD = 'v119';
+import { Game } from './game.js?v=120';
+import { P2PNet } from './net.js?v=120';
+import { WEAPONS } from './config.js?v=120';
+import { sfx } from './audio.js?v=120';
+import { auth } from './auth.js?v=120';
+window.__ZC_BUILD = 'v120';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -97,6 +97,7 @@ game.onChat = (p, text) => {
   setTimeout(() => div.remove(), 5000);
 };
 game.onHud = (h) => {
+  updateNetStat(h);
   if (h.remote) {
     $('aliveCount').textContent = h.alive;
     $('zoneTimer').textContent = h.zone;
@@ -181,15 +182,31 @@ $('botsBtn').onclick = () => {
   sfx.ensure(); sfx.ui();
   const me = auth.current();
   const name = (me && me.name) || $('nick').value || 'Prodigy';
-  roomCode = null; isHost = false;
+  roomCode = null; isHost = false; lastWasOnline = false;
   showGameUI();
   game.start({ name, mode, botCount: botCountFor(), net: null, isRemote: false });
   if (me && game.local) game.local.color = me.color;
   $('repoLink').href = location.href.includes('github.io') ? location.href : 'https://github.com';
 };
 
-$('againBtn').onclick = () => { showMenu(); $('botsBtn').click(); };
-$('menuBtn').onclick = showMenu;
+$('againBtn').onclick = () => { playAgain(); };
+$('menuBtn').onclick = () => { goHome(); };
+$('winHomeBtn').onclick = () => { goHome(); };
+$('winAgainBtn').onclick = () => { playAgain(); };
+
+let lastWasOnline = false;
+function goHome() {
+  $('winBanner').classList.add('hidden');
+  try { net.destroy(); } catch { }
+  onlineIdle();
+  onlineCancelled = true;
+  showMenu();
+}
+function playAgain() {
+  const wasOnline = lastWasOnline;
+  goHome();
+  setTimeout(() => { $(wasOnline ? 'onlineBtn' : 'botsBtn').click(); }, 60);
+}
 
 // --- ONLINE: automatic public lobbies, no rooms/codes. Humans only, NO bots.
 // First arrival hosts (authoritative sim), rest join as guests.
@@ -304,7 +321,9 @@ function wireHostSim() {
 }
 
 function startOnlineMatch(name) {
+  lastWasOnline = true;
   const seed = (Math.random() * 1e9) | 0;
+  console.log('[net] starting match with seed ' + seed);
   net.gameInfo = { started: true, seed };
   net.broadcastStart(seed);
   wireHostSim();
@@ -344,12 +363,21 @@ function guestOnlineLobby(name, lobby) {
   net.onStart = (seed) => {
     if (started || game.running) return; // ignore duplicate starts
     started = true;
+    lastWasOnline = true;
     clearInterval(heartbeat);
+    console.log('[net] match starting from host, seed ' + seed);
     net.onSnapshot = (snap) => game.applySnapshot(snap);
     onlineIdle();
     showGameUI();
     game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true, seed });
     game.local = { name, x: 4500, y: 4500 };
+    game.lastSnapT = performance.now();
+    game.onTimeout = () => {
+      try { net.destroy(); } catch { }
+      onlineIdle(); showMenu();
+      onlineStatus(''); $('onlineBox').classList.remove('hidden');
+      $('onlineStatus').textContent = 'Lost the host connection mid-match. Hit 🌐 PLAY ONLINE to re-queue.';
+    };
     net.sendHello({ name });
   };
 }
@@ -389,5 +417,26 @@ window.addEventListener('keydown', (e) => {
   if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'TEXTAREA') return;
   if (e.key === 'Enter') openChat(); // type a custom message, Enter again to send
 });
+
+// tiny connection readout under the alive counter (online only)
+let lastNsT = 0;
+function updateNetStat(h) {
+  const el = $('netStat');
+  const online = net && (net.isHost || net.clientConn);
+  if (!online || $('hud').classList.contains('hidden')) { el.classList.add('hidden'); return; }
+  const now = Date.now();
+  if (now - lastNsT < 500) return;
+  lastNsT = now;
+  el.classList.remove('hidden');
+  if (net.isHost) {
+    el.classList.remove('bad');
+    el.textContent = `H • ${net.peerCount} guest${net.peerCount === 1 ? '' : 's'}`;
+  } else {
+    const age = game.lastSnapT ? (performance.now() - game.lastSnapT) / 1000 : 99;
+    const stale = age > 2;
+    el.classList.toggle('bad', stale);
+    el.textContent = stale ? `G • STALE ${age.toFixed(0)}s` : `G • ${age.toFixed(1)}s`;
+  }
+}
 
 function escapeHtml(s) { return String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }

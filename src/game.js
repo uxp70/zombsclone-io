@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=119';
-import { generateWorld } from './world.js?v=119';
-import { makeBotController } from './bots.js?v=119';
-import { sfx } from './audio.js?v=119';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=120';
+import { generateWorld } from './world.js?v=120';
+import { makeBotController } from './bots.js?v=120';
+import { sfx } from './audio.js?v=120';
 
 let PID = 1;
 
@@ -859,6 +859,7 @@ export class Game {
   applySnapshot(s) {
     this.remoteSnap = s;
     this.lastSnapT = performance.now();
+    this._rehelloed = false;
     if (s.gas) this.gas = s.gas;
     if (s.phase) this.phase = s.phase;
     // adopt the host's world (deterministic ids per seed keep loot in sync)
@@ -919,6 +920,17 @@ export class Game {
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
       this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
+    }
+    // stall detection: one re-hello to recover transient drops, then exit
+    const staleMs = performance.now() - (this.lastSnapT || 0);
+    if (staleMs > 4000 && !this._rehelloed) {
+      this._rehelloed = true;
+      try { this.net && this.net.sendHello({ name: (this.local && this.local.name) || 'guest' }); } catch { }
+    }
+    if (staleMs > 9000 && this.onTimeout) {
+      const cb = this.onTimeout; this.onTimeout = null;
+      cb();
+      return;
     }
     for (let i = this.particles.length - 1; i >= 0; i--) { this.particles[i].t -= dt; if (this.particles[i].t <= 0) this.particles.splice(i, 1); }
     // coast snapshot bullets so tracers stay smooth between 12Hz snapshots
@@ -1089,6 +1101,15 @@ export class Game {
     }
   }
 
+  // interiors stay hidden under the roof unless you're inside or at the door
+  houseRevealed(h, p) {
+    if (!h || !h.door || !p || p.dead) return true;
+    const inside = p.x > h.x - h.w / 2 - 12 && p.x < h.x + h.w / 2 + 12 &&
+      p.y > h.y - h.h / 2 - 12 && p.y < h.y + h.h / 2 + 12;
+    if (inside) return true;
+    return dist2(p.x, p.y, h.door.x, h.door.y) < 120 * 120;
+  }
+
   // ---------- render ----------
   render() {
     const { ctx, cv } = this;
@@ -1165,6 +1186,14 @@ export class Game {
       for (let pl = h.x - h.w / 2 + 24; pl < h.x + h.w / 2; pl += 22) {
         ctx.beginPath(); ctx.moveTo(pl, h.y - h.h / 2 + 10); ctx.lineTo(pl, h.y + h.h / 2 - 10); ctx.stroke();
       }
+      // doorway mat + posts so the entrance reads clearly
+      if (h.door) {
+        ctx.fillStyle = 'rgba(60,35,10,0.55)';
+        ctx.beginPath(); ctx.arc(h.door.x, h.door.y, 24, 0, 7); ctx.fill();
+        ctx.fillStyle = '#8a5a2b';
+        ctx.beginPath(); ctx.arc(h.door.x - 26, h.door.y, 6, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.arc(h.door.x + 26, h.door.y, 6, 0, 7); ctx.fill();
+      }
     }
 
     // obstacles
@@ -1237,6 +1266,30 @@ export class Game {
       ctx.fillStyle = '#222'; ctx.fillText(c.text, p.x, p.y - 37);
     }
 
+    // house roofs — interiors stay hidden unless you're inside or at the door
+    if (this.houses) for (const h of this.houses) {
+      if (h.x + h.w / 2 + 30 < vx0 || h.x - h.w / 2 - 30 > vx1 || h.y + h.h / 2 + 30 < vy0 || h.y - h.h / 2 - 30 > vy1) continue;
+      if (this.houseRevealed(h, this.local)) continue;
+      const rx = h.x - h.w / 2 - 18, ry = h.y - h.h / 2 - 18, rw = h.w + 36, rh = h.h + 36;
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fillRect(rx + 6, ry + 8, rw, rh);
+      const roof = ctx.createLinearGradient(rx, ry, rx, ry + rh);
+      roof.addColorStop(0, '#c25e3a'); roof.addColorStop(1, '#8e3a20');
+      ctx.fillStyle = roof;
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeStyle = 'rgba(120,40,20,0.6)'; ctx.lineWidth = 2;
+      for (let sy = ry + 18; sy < ry + rh; sy += 20) {
+        ctx.beginPath(); ctx.moveTo(rx, sy); ctx.lineTo(rx + rw, sy); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(rx, ry, rw, 8);
+      ctx.strokeStyle = '#5c1f0e'; ctx.lineWidth = 4;
+      ctx.strokeRect(rx, ry, rw, rh);
+      // ridge beam
+      ctx.fillStyle = '#6e2a15';
+      ctx.fillRect(h.x - 8, ry, 16, rh);
+    }
+
     // plane
     if (this.plane && this.plane.active) {
       const pl = this.plane;
@@ -1263,22 +1316,33 @@ export class Game {
       ctx.restore();
     }
 
-    // gas overlay: darken outside circle (only once fighting on the ground)
+    // gas overlay: soft tint outside the zone + animated boundary (fight phase only)
     const g = this.gas;
     if (g && this.phase === 'play') {
       ctx.save();
       ctx.beginPath();
       ctx.rect(vx0 - 500, vy0 - 500, (vx1 - vx0) + 1000, (vy1 - vy0) + 1000);
       ctx.arc(g.x, g.y, Math.max(1, g.r), 0, 7, true);
-      ctx.fillStyle = 'rgba(150,40,200,0.35)';
+      ctx.fillStyle = 'rgba(150,40,200,0.16)';
       ctx.fill('evenodd');
       // zone lines
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.setLineDash([14, 10]);
+      ctx.lineDashOffset = -this.time * 24;
       ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, 7); ctx.stroke();
       ctx.strokeStyle = '#ffd23f';
       ctx.beginPath(); ctx.arc(g.tx, g.ty, g.tr, 0, 7); ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
+      // warn the local player while they're outside
+      const L = this.local;
+      if (L && !L.dead && this.isOutsideGas(L.x, L.y)) {
+        const pulse = 0.6 + 0.4 * Math.sin(this.time * 6);
+        ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+        ctx.lineWidth = 4; ctx.strokeStyle = `rgba(0,0,0,${0.7 * pulse})`;
+        ctx.strokeText('⚠ GET TO ZONE', L.x, L.y - 58);
+        ctx.fillStyle = `rgba(255,80,80,${pulse})`;
+        ctx.fillText('⚠ GET TO ZONE', L.x, L.y - 58);
+      }
     }
 
     // world border

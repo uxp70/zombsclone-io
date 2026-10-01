@@ -1,4 +1,4 @@
-import { WORLD_SIZE, rand, randi, pick } from './config.js?v=119';
+import { WORLD_SIZE, rand, randi, pick } from './config.js?v=120';
 
 let uid = 1;
 export function nid() { return uid++; }
@@ -94,30 +94,35 @@ export function generateWorld(seed = (Math.random() * 1e9) | 0) {
     const t = 20, doorSide = (R() * 4) | 0, gap = 95;
     const gc = RR(0.3, 0.7); // gap position along side
     const seg = (x, y, ww, hh) => { if (ww > 4 && hh > 4) { const o = { type: 'wall', x, y, w: ww, h: hh, hp: 100, id: nid() }; obstacles.push(o); } };
+    let door = null;
     if (doorSide === 0) { // top has door
       const gx = cx - w / 2 + w * gc;
+      door = { x: gx, y: cy - h / 2 };
       seg(cx - w / 2, cy - h / 2, gx - gap / 2 - (cx - w / 2), t);
       seg(gx + gap / 2, cy - h / 2, (cx + w / 2) - (gx + gap / 2), t);
       seg(cx - w / 2, cy + h / 2 - t, w, t);
     } else if (doorSide === 1) { // bottom
       const gx = cx - w / 2 + w * gc;
+      door = { x: gx, y: cy + h / 2 };
       seg(cx - w / 2, cy - h / 2, w, t);
       seg(cx - w / 2, cy + h / 2 - t, gx - gap / 2 - (cx - w / 2), t);
       seg(gx + gap / 2, cy + h / 2 - t, (cx + w / 2) - (gx + gap / 2), t);
     } else if (doorSide === 2) { // left
       const gy = cy - h / 2 + h * gc;
+      door = { x: cx - w / 2, y: gy };
       seg(cx - w / 2, cy - h / 2, w, t);
       seg(cx - w / 2, cy + h / 2 - t, w, t);
       seg(cx - w / 2, cy - h / 2, t, gy - gap / 2 - (cy - h / 2));
       seg(cx - w / 2, gy + gap / 2, t, (cy + h / 2) - (gy + gap / 2));
     } else { // right
       const gy = cy - h / 2 + h * gc;
+      door = { x: cx + w / 2, y: gy };
       seg(cx - w / 2, cy - h / 2, w, t);
       seg(cx - w / 2, cy + h / 2 - t, w, t);
       seg(cx + w / 2 - t, cy - h / 2, t, gy - gap / 2 - (cy - h / 2));
       seg(cx + w / 2 - t, gy + gap / 2, t, (cy + h / 2) - (gy + gap / 2));
     }
-    houses.push({ x: cx, y: cy, w, h });
+    houses.push({ x: cx, y: cy, w, h, door });
     const big = w * h > 70000;
     chests.push({ x: cx + RR(-40, 40), y: cy + RR(-30, 30), tier: big && R() < 0.3 ? 'golden' : 'basic' });
     if (big && R() < 0.45) chests.push({ x: cx + RR(-w / 4, w / 4), y: cy + RR(-h / 4, h / 4), tier: 'basic' });
