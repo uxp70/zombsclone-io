@@ -228,7 +228,7 @@ setInterval(() => {
   } else if (state === 'playing') {
     matchTime += TICK / 1000;
     game.update(TICK / 1000);
-    if (tick % 6 === 0) broadcast({ t: 'snap', snap: game.snapshot() });
+    if (tick % 4 === 0) broadcast({ t: 'snap', snap: game.snapshot() });
     if (matchTime > 10) {
       const alive = game.players.filter((p) => !p.dead);
       if (alive.length <= 1) endMatch();

@@ -72,7 +72,7 @@ npm start --prefix server        # ws://localhost:8081 (or $PORT), /health for c
   Then put your `wss://<your-app>.onrender.com` URL in the menu's server field (it remembers it). `render.yaml` + `/health` checks are already in the repo.
 
   The server also hosts the game client itself, so one Render URL does everything: open `https://<your-app>.onrender.com` to play (it auto-uses same-origin sockets), no GitHub Pages needed. The Pages site stays up as a mirror and defaults to the Render server. The service runs in **Frankfurt** (`region: frankfurt` in `render.yaml`) for low EU ping — change it if your players are elsewhere.
-- Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 10Hz (5Hz in the lobby, which streams live so waiters render the 3D plaza); clients interpolate between them and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
+- Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 15Hz (5Hz in the lobby, which streams live so waiters render the 3D plaza); clients predict their own movement instantly with gentle server reconciliation, interpolate others, and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
 
 ## Run locally
 

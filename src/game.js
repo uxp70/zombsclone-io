@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=129';
-import { generateWorld } from './world.js?v=129';
-import { makeBotController } from './bots.js?v=129';
-import { sfx } from './audio.js?v=129';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=130';
+import { generateWorld } from './world.js?v=130';
+import { makeBotController } from './bots.js?v=130';
+import { sfx } from './audio.js?v=130';
 
 let PID = 1;
 
@@ -972,7 +972,7 @@ export class Game {
       // keep the wielded model in sync so guns render on remote players
       p.slots = [{ gun: sp.gun, rarity: sp.rarity || 0, magAmmo: 99 }];
       p.slotI = 0;
-      // network targets — updateRemote lerps display pos toward these (smooth 10Hz)
+      // network targets — updateRemote predicts self, lerps others (smooth 15Hz)
       if (p.sx === undefined || Math.abs(sp.x - p.sx) > 600 || Math.abs(sp.y - p.sy) > 600) {
         p.x = sp.x; p.y = sp.y; p.sx = sp.x; p.sy = sp.y;
       } else { p.sx = sp.x; p.sy = sp.y; }
@@ -991,11 +991,15 @@ export class Game {
   }
 
   updateRemote(dt) {
-    // client: send input, render snapshot
+    // client: send input + predict own movement (server reconciles gently)
+    let mx = 0, my = 0;
     if (this.local && this.net) {
-      let mx = 0, my = 0;
       if (this.keys['w']) my -= 1; if (this.keys['s']) my += 1;
       if (this.keys['a']) mx -= 1; if (this.keys['d']) mx += 1;
+      if (this._sticks && this._sticks.move) {
+        mx = this._sticks.move.dx / 40; my = this._sticks.move.dy / 40;
+        const n = Math.hypot(mx, my); if (n > 1) { mx /= n; my /= n; }
+      }
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
       this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
@@ -1024,12 +1028,28 @@ export class Game {
       b.traveled = (b.traveled || 0) + Math.hypot(b.vx || 0, b.vy || 0) * dt;
       if (b.traveled > 1400) this.bullets.splice(i, 1);
     }
-    // interpolate remote players toward snapshot targets (smooth 10Hz)
+    // self prediction + others interpolation (smooth 15Hz snapshots)
+    const me = this.local && this.players.find((x) => x.name === this.local.name && !x.dead);
     for (const p of this.players) {
       if (p.dead || p.sx === undefined) continue;
-      const dx = p.sx - p.x, dy = p.sy - p.y;
-      const k = Math.min(1, dt * 11);
-      p.x += dx * k; p.y += dy * k;
+      if (p === me && !p.dropping && p.chute <= 0) {
+        const n = Math.hypot(mx, my);
+        const sp = p.speed;
+        if (n > 0.01) {
+          p.vx = lerp(p.vx, (mx / Math.max(1, n)) * sp, Math.min(1, dt * 10));
+          p.vy = lerp(p.vy, (my / Math.max(1, n)) * sp, Math.min(1, dt * 10));
+        } else { p.vx = lerp(p.vx, 0, Math.min(1, dt * 10)); p.vy = lerp(p.vy, 0, Math.min(1, dt * 10)); }
+        p.x = clamp(p.x + p.vx * dt, 20, WORLD_SIZE - 20);
+        p.y = clamp(p.y + p.vy * dt, 20, WORLD_SIZE - 20);
+        this.collide(p);
+        const dx = p.sx - p.x, dy = p.sy - p.y;
+        if (dx * dx + dy * dy > 150 * 150) { p.x = p.sx; p.y = p.sy; }
+        else { const k = Math.min(1, dt * 6); p.x += dx * k; p.y += dy * k; }
+      } else {
+        const dx = p.sx - p.x, dy = p.sy - p.y;
+        const k = Math.min(1, dt * 14);
+        p.x += dx * k; p.y += dy * k;
+      }
     }
     if (this.onHud) {
       const alive = this.players.filter((p) => !p.dead).length;
