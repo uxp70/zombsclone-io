@@ -5,6 +5,7 @@ services:
     buildCommand: npm install --prefix server
     startCommand: npm start --prefix server
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 10000

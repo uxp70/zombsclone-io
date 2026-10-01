@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=122';
-import { ServerNet } from './servernet.js?v=122';
-import { WEAPONS } from './config.js?v=122';
-import { sfx } from './audio.js?v=122';
-import { auth } from './auth.js?v=122';
-window.__ZC_BUILD = 'v122';
+import { Game } from './game.js?v=123';
+import { ServerNet } from './servernet.js?v=123';
+import { WEAPONS } from './config.js?v=123';
+import { sfx } from './audio.js?v=123';
+import { auth } from './auth.js?v=123';
+window.__ZC_BUILD = 'v123';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -276,14 +276,23 @@ if ($('srvTestBtn')) $('srvTestBtn').onclick = async () => {
 
 async function joinServer(url, name, isRetry) {
   if (!isRetry) onlineStatus('Connecting to server…');
-  try {
-    await net.connect(url);
-  } catch (e) {
-    if (!onlineCancelled) {
-      onlineStatus('Failed: ' + e.message + ' Run the server (see README) or fix the URL below.');
-      $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
+  // free-tier hosts sleep: retry a few times while they wake (~50s cover)
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (onlineCancelled) { net.destroy(); return; }
+    if (attempt > 1) onlineStatus(`Waking server… (attempt ${attempt}/4)`);
+    try {
+      await net.connect(url);
+      break;
+    } catch (e) {
+      if (attempt === 4 || onlineCancelled) {
+        if (!onlineCancelled) {
+          onlineStatus('Failed: ' + e.message + ' Run the server (see README) or fix the URL below.');
+          $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
+        }
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 7000));
     }
-    return;
   }
   if (onlineCancelled) { net.destroy(); return; }
   wireServerHandlers(url, name);

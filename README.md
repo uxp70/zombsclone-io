@@ -60,11 +60,15 @@ The client is static, but online needs the Node server running somewhere reachab
 
 ```bash
 npm install --prefix server
-npm start --prefix server        # ws://localhost:8081 (or $PORT)
+npm start --prefix server        # ws://localhost:8081 (or $PORT), /health for checks
 ```
 
 - **Same PC / LAN:** both players press 🌐 PLAY ONLINE with the server field set to `ws://<host-ip>:8081`. Use the **Test** button on the menu to check reachability first.
-- **Internet:** deploy `server/` to Render/Fly/your VPS (`render.yaml` is included for one-click Render deploys), then put the `wss://…` URL in the menu's server field (it remembers it).
+- **Internet (free):** host it on Render in one click (free tier sleeps when idle — the client retries while it wakes):
+
+  [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/uxp70/zombsclone-io)
+
+  Then put your `wss://<your-app>.onrender.com` URL in the menu's server field (it remembers it). `render.yaml` + `/health` checks are already in the repo.
 - Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 10Hz; clients interpolate between them and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
 
 ## Run locally

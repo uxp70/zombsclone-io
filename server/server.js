@@ -93,8 +93,19 @@ function endMatch() {
   }, 8000);
 }
 
-const wss = new WebSocketServer({ port: PORT });
-console.log(`[server] listening on :${PORT}`);
+const httpMod = await import('node:http');
+const wss = (() => {
+  // plain HTTP handler for health checks + Render; upgrades go to ws
+  const httpServer = httpMod.default.createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('zombsclone ok');
+    } else { res.writeHead(404); res.end(); }
+  });
+  const server = new WebSocketServer({ server: httpServer });
+  httpServer.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
+  return server;
+})();
 
 wss.on('connection', (ws) => {
   const c = { name: 'Guest', team: 't-h' + (++humanSeq), playerId: null };
