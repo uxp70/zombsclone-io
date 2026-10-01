@@ -35,6 +35,8 @@ const { Game } = await import('../src/game.js');
 const PORT = +(process.env.PORT || 8081);
 const MAX_HUMANS = 6;
 const START_WAIT = +(process.env.START_WAIT || 30);
+// bump when the protocol/world changes so clients can warn on stale servers
+const SERVER_BUILD = 1;
 const TICK = 1000 / 60;
 
 const game = new Game(makeCanvas(), makeCanvas());
@@ -164,7 +166,7 @@ wss.on('connection', (ws) => {
         const p = game.spawnPlayer(c.name, c.team, true);
         c.playerId = p.id;
         send(ws, { t: 'welcome' });
-        send(ws, { t: 'lobby', humans: humans().length, countdown: state === 'countdown' ? Math.max(0, Math.ceil(countdown)) : 0, started: false });
+        send(ws, { t: 'lobby', humans: humans().length, countdown: state === 'countdown' ? Math.max(0, Math.ceil(countdown)) : 0, started: false, build: SERVER_BUILD });
         broadcast({ t: 'chat', name: '', text: `${c.name} joined (${humans().length})` });
       } else if (state === 'playing') {
         // late join straight into the action
@@ -219,7 +221,7 @@ setInterval(() => {
     }
     game.update(TICK / 1000); // lobby wander (no-op without players is fine)
     if (tick % 30 === 0) {
-      broadcast({ t: 'lobby', humans: n, countdown: Math.max(0, Math.ceil(countdown)), started: false });
+      broadcast({ t: 'lobby', humans: n, countdown: Math.max(0, Math.ceil(countdown)), started: false, build: SERVER_BUILD });
     }
     // stream the plaza so waiters render the 3D lobby instead of a dead menu
     if (tick % 12 === 0 && game.players.length) broadcast({ t: 'snap', snap: game.snapshot() });

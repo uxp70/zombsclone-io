@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=127';
-import { ServerNet } from './servernet.js?v=127';
-import { WEAPONS } from './config.js?v=127';
-import { sfx } from './audio.js?v=127';
-import { auth } from './auth.js?v=127';
-window.__ZC_BUILD = 'v127';
+import { Game } from './game.js?v=128';
+import { ServerNet } from './servernet.js?v=128';
+import { WEAPONS } from './config.js?v=128';
+import { sfx } from './audio.js?v=128';
+import { auth } from './auth.js?v=128';
+window.__ZC_BUILD = 'v128';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -251,6 +251,8 @@ let onlineCancelled = false;
 let reconnectTries = 0;
 let lobbyBeat = null;
 let rejoiningRemote = false;
+// must match server/server.js SERVER_BUILD or the menu warns
+const EXPECTED_SERVER_BUILD = 1;
 
 $('onlineBtn').onclick = async () => {
   sfx.ensure(); sfx.ui();
@@ -324,6 +326,10 @@ function wireServerHandlers(url, name) {
   }, 1000);
   net.onLobby = (m) => {
     lastMsg = Date.now();
+    if (m.build !== undefined && m.build !== EXPECTED_SERVER_BUILD) {
+      onlineStatus(`⚠️ Server is outdated (build ${m.build}, need ${EXPECTED_SERVER_BUILD}) — redeploy it on Render, then rejoin.`);
+      return;
+    }
     if (m.countdown > 0) onlineStatus(`Starting in ${m.countdown}… (${m.humans} players)`);
     else onlineStatus(`Waiting for players… (${m.humans} here) — starts 30s after 2+ join.`);
   };
