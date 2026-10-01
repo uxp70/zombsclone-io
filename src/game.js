@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=120';
-import { generateWorld } from './world.js?v=120';
-import { makeBotController } from './bots.js?v=120';
-import { sfx } from './audio.js?v=120';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=121';
+import { generateWorld } from './world.js?v=121';
+import { makeBotController } from './bots.js?v=121';
+import { sfx } from './audio.js?v=121';
 
 let PID = 1;
 
@@ -860,6 +860,7 @@ export class Game {
     this.remoteSnap = s;
     this.lastSnapT = performance.now();
     this._rehelloed = false;
+    this._stalled = false;
     if (s.gas) this.gas = s.gas;
     if (s.phase) this.phase = s.phase;
     // adopt the host's world (deterministic ids per seed keep loot in sync)
@@ -921,13 +922,18 @@ export class Game {
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
       this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
     }
-    // stall detection: one re-hello to recover transient drops, then exit
+    // stall detection: re-hello once for transient drops, ask for a full
+    // rejoin at 6s (repeatable), boot to menu at 20s as a last resort
     const staleMs = performance.now() - (this.lastSnapT || 0);
     if (staleMs > 4000 && !this._rehelloed) {
       this._rehelloed = true;
       try { this.net && this.net.sendHello({ name: (this.local && this.local.name) || 'guest' }); } catch { }
     }
-    if (staleMs > 9000 && this.onTimeout) {
+    if (staleMs > 6000 && !this._stalled && this.onStall) {
+      this._stalled = true;
+      this.onStall();
+    }
+    if (staleMs > 20000 && this.onTimeout) {
       const cb = this.onTimeout; this.onTimeout = null;
       cb();
       return;
@@ -1316,32 +1322,43 @@ export class Game {
       ctx.restore();
     }
 
-    // gas overlay: soft tint outside the zone + animated boundary (fight phase only)
+    // STORM (re-coded): no full-screen wash. A pulsing energy wall marks the
+    // zone rim, the next circle stays gold, and caught players get guidance.
     const g = this.gas;
     if (g && this.phase === 'play') {
+      const pulse = 0.55 + 0.45 * Math.sin(this.time * 3.2);
       ctx.save();
-      ctx.beginPath();
-      ctx.rect(vx0 - 500, vy0 - 500, (vx1 - vx0) + 1000, (vy1 - vy0) + 1000);
-      ctx.arc(g.x, g.y, Math.max(1, g.r), 0, 7, true);
-      ctx.fillStyle = 'rgba(150,40,200,0.16)';
-      ctx.fill('evenodd');
-      // zone lines
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.setLineDash([14, 10]);
-      ctx.lineDashOffset = -this.time * 24;
+      // energy wall: soft wide band + bright animated rim on the zone edge
+      ctx.strokeStyle = `rgba(150,60,220,${0.22 + 0.18 * pulse})`;
+      ctx.lineWidth = 30;
       ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, 7); ctx.stroke();
-      ctx.strokeStyle = '#ffd23f';
+      ctx.strokeStyle = `rgba(225,190,255,${0.55 + 0.4 * pulse})`;
+      ctx.lineWidth = 5; ctx.setLineDash([26, 18]);
+      ctx.lineDashOffset = -this.time * 60;
+      ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      // next-zone ring
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.setLineDash([14, 10]);
       ctx.beginPath(); ctx.arc(g.tx, g.ty, g.tr, 0, 7); ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
-      // warn the local player while they're outside
+      // guidance arrow + distance for players caught outside
       const L = this.local;
       if (L && !L.dead && this.isOutsideGas(L.x, L.y)) {
-        const pulse = 0.6 + 0.4 * Math.sin(this.time * 6);
-        ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
-        ctx.lineWidth = 4; ctx.strokeStyle = `rgba(0,0,0,${0.7 * pulse})`;
-        ctx.strokeText('⚠ GET TO ZONE', L.x, L.y - 58);
-        ctx.fillStyle = `rgba(255,80,80,${pulse})`;
-        ctx.fillText('⚠ GET TO ZONE', L.x, L.y - 58);
+        const a = Math.atan2(g.y - L.y, g.x - L.x);
+        const d = Math.hypot(g.x - L.x, g.y - L.y) - g.r;
+        const ax = L.x + Math.cos(a) * 76, ay = L.y + Math.sin(a) * 76;
+        ctx.save(); ctx.translate(ax, ay); ctx.rotate(a);
+        ctx.fillStyle = `rgba(255,70,70,${0.7 + 0.3 * pulse})`;
+        ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-9, -12); ctx.lineTo(-9, 12); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.restore();
+        const label = 'ZONE ' + Math.max(1, Math.round(d / 50)) + 'm';
+        ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.strokeText(label, L.x, L.y - 60);
+        ctx.fillStyle = '#ff6b6b';
+        ctx.fillText(label, L.x, L.y - 60);
       }
     }
 

@@ -1,4 +1,4 @@
-import { WORLD_SIZE, rand, randi, pick } from './config.js?v=120';
+import { WORLD_SIZE, rand, randi, pick } from './config.js?v=121';
 
 let uid = 1;
 export function nid() { return uid++; }

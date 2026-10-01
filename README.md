@@ -28,7 +28,7 @@ Mobile: left-half virtual stick moves, right-half aims + fires.
 
 - Grid grass, roads, ponds (slow), trees/rocks/crates/barrels/bushes, walled compounds with door gaps
 - Loot tiers Common→Legendary (gray/green/blue/purple/gold) × Pistol/SMG/Shotgun/AR/Burst/LMG/Sniper + ammo/heals/shield
-- Pre-match **lobby plaza** with countdown, plane flyover, steerable **parachute** (no shooting until you land), 🕊️ **grace period** where bots hold fire (they still retaliate), shrinking gas circles
+- Pre-match **lobby plaza** with countdown, plane flyover, steerable **parachute** (no shooting until you land), 🕊️ **grace period** where bots hold fire (they still retaliate), and a re-coded **storm**: no full-screen wash — a pulsing energy wall marks the zone rim, next circle stays gold, and caught players get an arrow + distance readout
 - 9000px map with 13 named POIs (Mansion, Lab, Farm…), 30 enterable **houses with doors + roofs** — interiors stay hidden until you're inside or at the door, guns come **only from chests**: 🎁 basic (1×1) and 💛 golden (1×2, better loot, glow) — in houses, POIs and the wilds. Press **E** to open. Ground loot and crates give ammo/heals only.
 - 13 weapons: Fists, Pistol, Revolver, SMG, Shotgun, Assault, Burst, LMG, Minigun (slows you down), Scout, Sniper, Crossbow, grenade **Launcher** (AoE explosions) — each with a distinct shaded in-hand model (also shown in the HUD slots) and 5 rarity tiers
 - Bots: trickle into the lobby gradually, scatter-drop across the map, seek chests when unarmed, unstick themselves from walls, loot scoring, zone rotation, strafing, healing, crate-breaking. Bots never chat.
@@ -51,7 +51,7 @@ under their username; guests can still play via the nickname field.
 GitHub Pages serves **static files only**. A real 100-player authoritative server (Node + WebSockets) can't run there. So:
 
 - `src/net.js` uses PeerJS cloud for NAT-traversed WebRTC: host = authority, guests relay inputs.
-- **No rooms, no codes, no bots**: press **🌐 PLAY ONLINE** to auto-matchmake into a public lobby (5 slots). First arrival hosts; the match starts 30s after 2+ humans join and waits as long as needed. Small lobbies get a tighter starting zone. Leavers are removed cleanly, stalled guests auto-recover (re-hello) or exit to menu, and a tiny H/G readout under the alive counter shows connection health.
+- **No rooms, no codes, no bots**: press **🌐 PLAY ONLINE** to auto-matchmake into a public lobby (5 slots). First arrival hosts; the match starts 30s after 2+ humans join and waits as long as needed. Small lobbies get a tighter starting zone. Leavers are removed cleanly; stalled guests auto-rejoin once, then exit with a message. A tiny H/G readout under the alive counter shows connection health.
 - Want true massive online? Self-host `server/` (not included — see issues) and point the client at a WebSocket URL. The `Game.snapshot()` / `applySnapshot()` protocol is already decoupled for this.
 
 ## Run locally

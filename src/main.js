@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=120';
-import { P2PNet } from './net.js?v=120';
-import { WEAPONS } from './config.js?v=120';
-import { sfx } from './audio.js?v=120';
-import { auth } from './auth.js?v=120';
-window.__ZC_BUILD = 'v120';
+import { Game } from './game.js?v=121';
+import { P2PNet } from './net.js?v=121';
+import { WEAPONS } from './config.js?v=121';
+import { sfx } from './audio.js?v=121';
+import { auth } from './auth.js?v=121';
+window.__ZC_BUILD = 'v121';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -355,14 +355,50 @@ function guestOnlineLobby(name, lobby) {
   };
   net.onDenied = (reason) => {
     started = true;
+    clearInterval(heartbeat);
     onlineIdle(); net.destroy(); showMenu();
     onlineStatus(''); $('onlineBox').classList.remove('hidden');
     $('onlineStatus').textContent = 'Join denied: ' + reason;
   };
   net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
+  let rejoining = false, reconnecting = false;
+  function bootToMenu(msg) {
+    onlineCancelled = true;
+    onlineIdle();
+    try { net.destroy(); } catch { }
+    showMenu();
+    onlineStatus(''); $('onlineBox').classList.remove('hidden');
+    $('onlineStatus').textContent = msg;
+  }
+  game.onTimeout = null;
+  game.onStall = null;
+  async function guestReconnect() {
+    if (reconnecting || onlineCancelled) return;
+    reconnecting = true;
+    game.centerMsg('Connection stalled — rejoining…', 5);
+    console.log('[net] stalled, attempting rejoin');
+    net.destroy();
+    try {
+      const found = await net.findLobby(() => {});
+      if (onlineCancelled) return;
+      if (found.role !== 'guest') throw new Error('previous lobby is gone');
+      rejoining = true;
+      net.sendHello({ name }); // host answers welcome + start(seed)
+      setTimeout(() => {
+        if (rejoining) {
+          rejoining = false; reconnecting = false;
+          bootToMenu('Could not rejoin the match. Hit 🌐 PLAY ONLINE to re-queue.');
+        }
+      }, 8000);
+    } catch (e) {
+      reconnecting = false;
+      bootToMenu('Lost the host connection mid-match. Hit 🌐 PLAY ONLINE to re-queue.');
+    }
+  }
   net.onStart = (seed) => {
-    if (started || game.running) return; // ignore duplicate starts
-    started = true;
+    if (onlineCancelled) return;
+    if ((started || game.running) && !rejoining) return; // ignore duplicate starts
+    started = true; rejoining = false; reconnecting = false;
     lastWasOnline = true;
     clearInterval(heartbeat);
     console.log('[net] match starting from host, seed ' + seed);
@@ -372,11 +408,9 @@ function guestOnlineLobby(name, lobby) {
     game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true, seed });
     game.local = { name, x: 4500, y: 4500 };
     game.lastSnapT = performance.now();
+    game.onStall = () => { guestReconnect(); };
     game.onTimeout = () => {
-      try { net.destroy(); } catch { }
-      onlineIdle(); showMenu();
-      onlineStatus(''); $('onlineBox').classList.remove('hidden');
-      $('onlineStatus').textContent = 'Lost the host connection mid-match. Hit 🌐 PLAY ONLINE to re-queue.';
+      bootToMenu('Lost the host connection mid-match. Hit 🌐 PLAY ONLINE to re-queue.');
     };
     net.sendHello({ name });
   };
