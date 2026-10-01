@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=125';
-import { generateWorld } from './world.js?v=125';
-import { makeBotController } from './bots.js?v=125';
-import { sfx } from './audio.js?v=125';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=126';
+import { generateWorld } from './world.js?v=126';
+import { makeBotController } from './bots.js?v=126';
+import { sfx } from './audio.js?v=126';
 
 let PID = 1;
 

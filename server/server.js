@@ -1,6 +1,8 @@
 // ZombsClone dedicated server — authoritative sim, no player hosts.
 // Run:  npm install --prefix server && npm start --prefix server
 // Then point clients at ws://HOST:PORT (default 8081, or $PORT).
+// The same process also serves the static game client, so one Render URL
+// hosts everything: https://<app>.onrender.com plays, wss://… plays online.
 //
 // Uses the exact same Game simulation as the browser (headless stubs below).
 // Humans only, no bots. 2+ humans trigger a 30s countdown, then plane/grace/fight.
@@ -94,13 +96,39 @@ function endMatch() {
 }
 
 const httpMod = await import('node:http');
+const fsMod = await import('node:fs');
+const pathMod = await import('node:path');
+const { fileURLToPath } = await import('node:url');
+const ROOT = pathMod.dirname(pathMod.dirname(fileURLToPath(import.meta.url)));
+// strict whitelist: only the public client files, never server/ or dotfiles
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+function serveStatic(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return true; }
+  let p = decodeURIComponent(req.url.split('?')[0]);
+  if (p === '/') p = '/index.html';
+  if (p.includes('..') || p.includes('\0')) { res.writeHead(400); res.end(); return true; }
+  const ok = p === '/index.html' || p === '/styles.css' || p.startsWith('/src/');
+  if (!ok) return false;
+  const ext = pathMod.extname(p);
+  if (!MIME[ext]) { res.writeHead(403); res.end(); return true; }
+  const full = pathMod.join(ROOT, p);
+  fsMod.readFile(full, (err, data) => {
+    if (err) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': MIME[ext], 'cache-control': 'public, max-age=300' });
+    if (req.method === 'GET') res.end(data); else res.end();
+  });
+  return true;
+}
 const wss = (() => {
-  // plain HTTP handler for health checks + Render; upgrades go to ws
+  // plain HTTP handler: health checks + static client; upgrades go to ws
   const httpServer = httpMod.default.createServer((req, res) => {
-    if (req.url === '/health' || req.url === '/') {
+    if (req.url === '/health' || req.url === '/health/') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('zombsclone ok');
-    } else { res.writeHead(404); res.end(); }
+      return;
+    }
+    if (serveStatic(req, res)) return;
+    res.writeHead(404); res.end();
   });
   const server = new WebSocketServer({ server: httpServer });
   httpServer.listen(PORT, () => console.log(`[server] listening on :${PORT}`));

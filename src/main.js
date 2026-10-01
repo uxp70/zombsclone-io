@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=125';
-import { ServerNet } from './servernet.js?v=125';
-import { WEAPONS } from './config.js?v=125';
-import { sfx } from './audio.js?v=125';
-import { auth } from './auth.js?v=125';
-window.__ZC_BUILD = 'v125';
+import { Game } from './game.js?v=126';
+import { ServerNet } from './servernet.js?v=126';
+import { WEAPONS } from './config.js?v=126';
+import { sfx } from './audio.js?v=126';
+import { auth } from './auth.js?v=126';
+window.__ZC_BUILD = 'v126';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -215,7 +215,15 @@ function serverURL() {
     const saved = localStorage.getItem('zc_server_url');
     if (saved) return saved;
   } catch { }
-  return 'wss://zombsclone-server.onrender.com';
+  try {
+    const host = location.hostname;
+    if (host && !/^(localhost|127\.|0\.0\.0\.0)/.test(host) && !/github\.io$/.test(host)) {
+      // client served by the game server itself (e.g. Render): same origin
+      return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+    }
+    if (/github\.io$/.test(host)) return 'wss://zombsclone-server.onrender.com';
+  } catch { }
+  return 'ws://localhost:8081';
 }
 
 function onlineStatus(text) {
