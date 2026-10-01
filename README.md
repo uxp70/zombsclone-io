@@ -33,7 +33,7 @@ Mobile: left-half virtual stick moves, right-half aims + fires.
 - 13 weapons: Fists, Pistol, Revolver, SMG, Shotgun, Assault, Burst, LMG, Minigun (slows you down), Scout, Sniper, Crossbow, grenade **Launcher** (AoE explosions) — each with a distinct shaded in-hand model (also shown in the HUD slots) and 5 rarity tiers
 - Bots: trickle into the lobby gradually, scatter-drop across the map, seek chests when unarmed, unstick themselves from walls, loot scoring, zone rotation, strafing, healing, crate-breaking. Bots never chat.
 - Custom chat: press **Enter**, type your message, **Enter** again to send (**Esc** cancels). Shown as a bubble + in the chat log, relayed to other players.
-- Performance: cached scenery gradients, throttled minimap, particle cap, an on-screen FPS meter, and automatic quality scaling (drops shading/shadows if FPS sags, recovers when smooth). Bullets are substepped so fast rounds can't tunnel through thin walls.
+- Performance: cached scenery gradients, throttled minimap, particle cap, an on-screen FPS meter with sim/render breakdown (`60fps S2 R18`), and automatic quality scaling (drops shading, then shadows, then render resolution if FPS sags; recovers when smooth). Bullets are substepped so fast rounds can't tunnel through thin walls.
 - Procedural WebAudio SFX (no assets)
 
 ## Accounts (login system)
@@ -72,7 +72,7 @@ npm start --prefix server        # ws://localhost:8081 (or $PORT), /health for c
   Then put your `wss://<your-app>.onrender.com` URL in the menu's server field (it remembers it). `render.yaml` + `/health` checks are already in the repo.
 
   The server also hosts the game client itself, so one Render URL does everything: open `https://<your-app>.onrender.com` to play (it auto-uses same-origin sockets), no GitHub Pages needed. The Pages site stays up as a mirror and defaults to the Render server. The service runs in **Frankfurt** (`region: frankfurt` in `render.yaml`) for low EU ping — change it if your players are elsewhere.
-- Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 10Hz; clients interpolate between them and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
+- Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 10Hz (5Hz in the lobby, which streams live so waiters render the 3D plaza); clients interpolate between them and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
 
 ## Run locally
 

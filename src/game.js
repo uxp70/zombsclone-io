@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=126';
-import { generateWorld } from './world.js?v=126';
-import { makeBotController } from './bots.js?v=126';
-import { sfx } from './audio.js?v=126';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=127';
+import { generateWorld } from './world.js?v=127';
+import { makeBotController } from './bots.js?v=127';
+import { sfx } from './audio.js?v=127';
 
 let PID = 1;
 
@@ -25,15 +25,25 @@ export class Game {
     this.botControllers = new Map();
     this.takenIds = new Set();
     this.bigMap = false;
+    this.quality = 0; this.pxScale = 1;
     this._bindInput();
     this._resize();
     window.addEventListener('resize', () => this._resize());
   }
 
   _resize() {
-    this.cv.width = window.innerWidth; this.cv.height = window.innerHeight;
+    const s = this.pxScale || 1;
+    this.cv.width = Math.floor(window.innerWidth * s); this.cv.height = Math.floor(window.innerHeight * s);
     const base = Math.min(window.innerWidth, window.innerHeight);
     this.baseZoom = clamp(base / 1100, 0.7, 1.35);
+  }
+
+  setQuality(q) {
+    q = Math.max(0, Math.min(2, q | 0));
+    if (q === (this.quality | 0) && this.pxScale) return;
+    this.quality = q;
+    this.pxScale = [1, 0.85, 0.68][q];
+    this._resize();
   }
 
   _bindInput() {
@@ -170,29 +180,35 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.05, (t - this.last) / 1000 || 0.016);
       this.last = t;
-      // fps meter + automatic quality scaling for weak hardware
-      const nowT = performance.now();
-      const inst = 1000 / Math.max(1, nowT - (this._lastFrameT || nowT));
-      this._lastFrameT = nowT;
-      this._fpsEMA = lerp(this._fpsEMA || 60, Math.min(inst, 120), 0.06);
-      this._qT = (this._qT || 0) + dt;
-      if (this._qT > 2) {
-        this._qT = 0;
-        if (this._fpsEMA < 45 && this.quality < 2) { this.quality++; this._qUp = 0; }
-        else if (this._fpsEMA > 57 && this.quality > 0) {
-          this._qUp = (this._qUp || 0) + 1;
-          if (this._qUp >= 5) { this.quality--; this._qUp = 0; }
-        } else this._qUp = 0;
-        const fp = document.getElementById('fps');
-        if (fp) fp.textContent = Math.round(this._fpsEMA) + 'fps' + (this.quality ? ' Q' + this.quality : '');
-      }
+      const t0 = performance.now();
       try {
         if (!this.isRemote) this.update(dt); else this.updateRemote(dt);
-        this.render();
-      } catch (err) { console.error('[game] frame error:', err); }
+      } catch (err) { console.error('[game] sim error:', err); }
+      const t1 = performance.now();
+      try { this.render(); } catch (err) { console.error('[game] render error:', err); }
+      this._simEMA = lerp(this._simEMA || 0, t1 - t0, 0.08);
+      this._renEMA = lerp(this._renEMA || 0, performance.now() - t1, 0.08);
+      this.autoQuality(dt);
       this._raf = requestAnimationFrame(loop);
     };
     this._raf = requestAnimationFrame(loop);
+  }
+
+  autoQuality(dt) {
+    const nowT = performance.now();
+    const inst = 1000 / Math.max(1, nowT - (this._lastFrameT || nowT));
+    this._lastFrameT = nowT;
+    this._fpsEMA = lerp(this._fpsEMA || 60, Math.min(inst, 120), 0.06);
+    this._qT = (this._qT || 0) + dt;
+    if (this._qT < 2) return;
+    this._qT = 0;
+    if (this._fpsEMA < 45 && (this.quality | 0) < 2) { this.setQuality(this.quality + 1); this._qUp = 0; }
+    else if (this._fpsEMA > 57 && (this.quality | 0) > 0) {
+      this._qUp = (this._qUp || 0) + 1;
+      if (this._qUp >= 5) { this.setQuality(this.quality - 1); this._qUp = 0; }
+    } else this._qUp = 0;
+    const fp = typeof document !== 'undefined' && document.getElementById('fps');
+    if (fp) fp.textContent = `${Math.round(this._fpsEMA)}fps S${(this._simEMA || 0).toFixed(0)} R${(this._renEMA || 0).toFixed(0)}${this.quality ? ' Q' + this.quality : ''}`;
   }
 
   _mkPlayer(name, isBot, team) {
@@ -574,7 +590,8 @@ export class Game {
   }
 
   followCam(L, dt, zoomMul = 1) {
-    const zoom = this.baseZoom * zoomMul;
+    // cam.zoom is device-px based so resolution scaling preserves the view
+    const zoom = this.baseZoom * (this.pxScale || 1) * zoomMul;
     this.cam.zoom = lerp(this.cam.zoom || zoom, zoom, Math.min(1, dt * 4));
     const tx = L.x - this.cv.width / this.cam.zoom / 2;
     const ty = L.y - this.cv.height / this.cam.zoom / 2;

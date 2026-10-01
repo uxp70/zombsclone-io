@@ -7,7 +7,7 @@ export class ServerNet {
     this._intentional = false;
     this.onSnapshot = null; this.onLobby = null; this.onStart = null;
     this.onDenied = null; this.onChatMsg = null; this.onEnd = null;
-    this.onClose = null;
+    this.onClose = null; this.onWelcome = null;
   }
   get connected() { return !!this.ws && this.ws.readyState === 1; }
   connect(url) {
@@ -34,7 +34,7 @@ export class ServerNet {
       else if (msg.t === 'denied') this.onDenied && this.onDenied(msg.reason || 'Denied.');
       else if (msg.t === 'chat') this.onChatMsg && this.onChatMsg(msg.name, msg.text);
       else if (msg.t === 'end') this.onEnd && this.onEnd(msg);
-      else if (msg.t === 'welcome') { /* joined */ }
+      else if (msg.t === 'welcome') this.onWelcome && this.onWelcome();
     };
     ws.onclose = () => {
       const wasIntentional = this._intentional;

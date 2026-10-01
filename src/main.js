@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=126';
-import { ServerNet } from './servernet.js?v=126';
-import { WEAPONS } from './config.js?v=126';
-import { sfx } from './audio.js?v=126';
-import { auth } from './auth.js?v=126';
-window.__ZC_BUILD = 'v126';
+import { Game } from './game.js?v=127';
+import { ServerNet } from './servernet.js?v=127';
+import { WEAPONS } from './config.js?v=127';
+import { sfx } from './audio.js?v=127';
+import { auth } from './auth.js?v=127';
+window.__ZC_BUILD = 'v127';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -250,6 +250,7 @@ function playerName() {
 let onlineCancelled = false;
 let reconnectTries = 0;
 let lobbyBeat = null;
+let rejoiningRemote = false;
 
 $('onlineBtn').onclick = async () => {
   sfx.ensure(); sfx.ui();
@@ -372,29 +373,49 @@ function wireServerHandlers(url, name) {
       $('deathScreen').classList.remove('hidden');
     }
   };
-  net.onStart = (seed) => {
+  net.onStart = (seed) => { beginRemote(seed, true); };
+  net.onWelcome = () => { beginRemote(0, false); };
+
+  function beginRemote(seed, sendHi) {
     if (onlineCancelled) return;
-    if (started && game.running) return; // ignore duplicate starts
-    started = true;
-    lastWasOnline = true;
+    if (started && game.running && !rejoiningRemote) return; // ignore duplicate starts
+    started = true; rejoiningRemote = false;
     lastWasOnline = true;
     clearInterval(heartbeat);
-    console.log('[net] match starting, seed ' + seed);
+    console.log('[net] entering match, seed ' + seed);
     net.onSnapshot = (snap) => game.applySnapshot(snap);
     onlineIdle();
     showGameUI();
     game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true, seed });
     game.local = { name, x: 4500, y: 4500 };
     game.lastSnapT = performance.now();
-    game.onStall = null;
+    game.onStall = () => {
+      // one auto-rejoin attempt; the 20s timeout boots to menu if it fails
+      if (rejoiningRemote || onlineCancelled) return;
+      rejoiningRemote = true;
+      game.centerMsg('Connection stalled — rejoining…', 4);
+      console.log('[net] stalled, rejoining');
+      (async () => {
+        try {
+          net.destroy();
+          await net.connect(url);
+          if (onlineCancelled) return;
+          wireServerHandlers(url, name);
+          rejoiningRemote = true;
+          net.sendHello({ name });
+        } catch (e) {
+          rejoiningRemote = false;
+        }
+      })();
+    };
     game.onTimeout = () => {
       try { net.destroy(); } catch { }
       onlineIdle(); showMenu();
       onlineStatus(''); $('onlineBox').classList.remove('hidden');
       $('onlineStatus').textContent = 'Lost the server mid-match. Hit 🌐 PLAY ONLINE to re-queue.';
     };
-    net.sendHello({ name });
-  };
+    if (sendHi) net.sendHello({ name });
+  }
 }
 
 

@@ -221,6 +221,8 @@ setInterval(() => {
     if (tick % 30 === 0) {
       broadcast({ t: 'lobby', humans: n, countdown: Math.max(0, Math.ceil(countdown)), started: false });
     }
+    // stream the plaza so waiters render the 3D lobby instead of a dead menu
+    if (tick % 12 === 0 && game.players.length) broadcast({ t: 'snap', snap: game.snapshot() });
   } else if (state === 'playing') {
     matchTime += TICK / 1000;
     game.update(TICK / 1000);
