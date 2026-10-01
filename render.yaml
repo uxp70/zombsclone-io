@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: zombsclone-server
+    runtime: node
+    buildCommand: npm install --prefix server
+    startCommand: npm start --prefix server
+    plan: free
+    envVars:
+      - key: PORT
+        value: 10000

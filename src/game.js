@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=121';
-import { generateWorld } from './world.js?v=121';
-import { makeBotController } from './bots.js?v=121';
-import { sfx } from './audio.js?v=121';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=122';
+import { generateWorld } from './world.js?v=122';
+import { makeBotController } from './bots.js?v=122';
+import { sfx } from './audio.js?v=122';
 
 let PID = 1;
 
@@ -87,9 +87,9 @@ export class Game {
   }
 
   // ---------- setup ----------
-  start({ name = 'Prodigy', mode = 'solo', botCount = 70, seed = (Math.random() * 1e9) | 0, net = null, isRemote = false, teamId = null }) {
+  start({ name = 'Prodigy', mode = 'solo', botCount = 70, seed = (Math.random() * 1e9) | 0, net = null, isRemote = false, teamId = null, dedicated = false } = {}) {
     this.stop();
-    this.mode = mode; this.net = net; this.isRemote = isRemote;
+    this.mode = mode; this.net = net; this.isRemote = isRemote; this.dedicated = dedicated;
     const w = generateWorld(seed);
     this.seed = seed;
     this.obstacles = w.obstacles; this.loot = w.loot; this.ponds = w.ponds; this.roads = w.roads;
@@ -139,7 +139,7 @@ export class Game {
       y: this.lobby.y + rand(60, this.lobby.h - 60),
     });
 
-    if (!isRemote) {
+    if (!isRemote && !dedicated) {
       this.local = this._mkPlayer(mkName(name), false, teamId || 't-local');
       Object.assign(this.local, penSpawn());
       this.local.faceAngle = rand(0, 6.28);
@@ -507,6 +507,24 @@ export class Game {
     this.houses = (this.houses || []).filter((h) => !inPen(h.x, h.y));
   }
 
+  // dedicated-server helper: add a human player (lobby spawn or mid-match drop-in)
+  spawnPlayer(name, team, inLobby = true) {
+    const p = this._mkPlayer(name, false, team);
+    p.remote = true;
+    if (inLobby && this.lobby) {
+      p.x = this.lobby.x + rand(60, this.lobby.w - 60);
+      p.y = this.lobby.y + rand(60, this.lobby.h - 60);
+      p.dropping = false; p.chute = 0;
+      this.lobbyPos(p);
+    } else {
+      p.dropping = false; p.chute = 0;
+      p.x = rand(600, WORLD_SIZE - 600);
+      p.y = rand(600, WORLD_SIZE - 600);
+    }
+    this.players.push(p);
+    return p;
+  }
+
   startPlane() {
     const a = Math.random() * Math.PI * 2;
     const cx = WORLD_SIZE / 2, cy = WORLD_SIZE / 2, Lg = WORLD_SIZE * 0.62;
@@ -852,6 +870,7 @@ export class Game {
       taken: [...this.takenIds].slice(-120),
       opened: [...this.openedIds],
       fresh: this.loot.slice(-8),
+      feed: this.killfeed.slice(0, 4),
       lobby: this.lobby,
     };
   }
@@ -891,6 +910,15 @@ export class Game {
       const c = this.chests.find((x) => x.id === id);
       if (c) c.opened = true;
     }
+    // synced killfeed so guests see eliminations too
+    if (s.feed) {
+      const fj = JSON.stringify(s.feed);
+      if (fj !== this._lastFeedJson) {
+        this._lastFeedJson = fj;
+        this.killfeed = s.feed.slice(0, 6);
+        this.onKillfeed && this.onKillfeed(this.killfeed);
+      }
+    }
     // upsert players
     const seen = new Set();
     for (const sp of s.players) {
@@ -901,8 +929,19 @@ export class Game {
         p.id = sp.id; PID = Math.max(PID, sp.id + 1);
         this.players.push(p);
       }
-      p.x = sp.x; p.y = sp.y; p.hp = sp.hp; p.shield = sp.shield; p.gun = sp.gun;
+      p.hp = sp.hp; p.shield = sp.shield; p.gun = sp.gun;
+      // keep the wielded model in sync so guns render on remote players
+      p.slots = [{ gun: sp.gun, rarity: sp.rarity || 0, magAmmo: 99 }];
+      p.slotI = 0;
+      // network targets — updateRemote lerps display pos toward these (smooth 10Hz)
+      if (p.sx === undefined || Math.abs(sp.x - p.sx) > 600 || Math.abs(sp.y - p.sy) > 600) {
+        p.x = sp.x; p.y = sp.y; p.sx = sp.x; p.sy = sp.y;
+      } else { p.sx = sp.x; p.sy = sp.y; }
       p.faceAngle = sp.face; p.dead = sp.dead; p.dropping = sp.dropping; p.chute = sp.chute ? 1 : 0; p.kills = sp.kills;
+    }
+    // prune players who left (remote snapshots are the full roster)
+    for (let i = this.players.length - 1; i >= 0; i--) {
+      if (!seen.has(this.players[i].id)) this.players.splice(i, 1);
     }
     this.bullets = (s.bullets || []).map((b) => ({ ...b, dmg: 0, range: 300, traveled: 0, from: -1 }));
     // camera on local-by-name
@@ -939,12 +978,19 @@ export class Game {
       return;
     }
     for (let i = this.particles.length - 1; i >= 0; i--) { this.particles[i].t -= dt; if (this.particles[i].t <= 0) this.particles.splice(i, 1); }
-    // coast snapshot bullets so tracers stay smooth between 12Hz snapshots
+    // coast snapshot bullets so tracers stay smooth between 10Hz snapshots
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
       b.x += (b.vx || 0) * dt; b.y += (b.vy || 0) * dt;
       b.traveled = (b.traveled || 0) + Math.hypot(b.vx || 0, b.vy || 0) * dt;
       if (b.traveled > 1400) this.bullets.splice(i, 1);
+    }
+    // interpolate remote players toward snapshot targets (smooth 10Hz)
+    for (const p of this.players) {
+      if (p.dead || p.sx === undefined) continue;
+      const dx = p.sx - p.x, dy = p.sy - p.y;
+      const k = Math.min(1, dt * 11);
+      p.x += dx * k; p.y += dy * k;
     }
     if (this.onHud) {
       const alive = this.players.filter((p) => !p.dead).length;

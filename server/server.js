@@ -1,0 +1,194 @@
+// ZombsClone dedicated server — authoritative sim, no player hosts.
+// Run:  npm install --prefix server && npm start --prefix server
+// Then point clients at ws://HOST:PORT (default 8081, or $PORT).
+//
+// Uses the exact same Game simulation as the browser (headless stubs below).
+// Humans only, no bots. 2+ humans trigger a 30s countdown, then plane/grace/fight.
+
+const noop = () => {};
+function makeCtx() {
+  const grad = { addColorStop: noop };
+  return new Proxy({}, {
+    get(t, p) {
+      if (p === 'measureText') return () => ({ width: 10 });
+      if (p === 'canvas') return { width: 300, height: 300 };
+      if (p === 'createLinearGradient' || p === 'createRadialGradient') return () => grad;
+      return noop;
+    },
+    set() { return true; },
+  });
+}
+function makeCanvas() {
+  return { width: 1280, height: 800, getContext: () => makeCtx(), addEventListener: noop, style: {} };
+}
+const fakeEl = () => ({ classList: { add: noop, remove: noop }, textContent: '', innerHTML: '' });
+globalThis.window = { innerWidth: 1280, innerHeight: 800, addEventListener: noop, removeEventListener: noop };
+globalThis.document = { getElementById: () => fakeEl(), createElement: () => makeCanvas() };
+globalThis.requestAnimationFrame = () => 0;
+globalThis.cancelAnimationFrame = noop;
+
+const { WebSocketServer } = await import('ws');
+const { Game } = await import('../src/game.js');
+
+const PORT = +(process.env.PORT || 8081);
+const MAX_HUMANS = 6;
+const START_WAIT = +(process.env.START_WAIT || 30);
+const TICK = 1000 / 60;
+
+const game = new Game(makeCanvas(), makeCanvas());
+game.onHud = null; game.onKillfeed = null; game.onChat = null;
+game.onDeath = null; game.onWin = null;
+
+let state = 'idle'; // idle | lobby | countdown | playing | ended
+let countdown = -1;
+let matchTime = 0;
+let humanSeq = 0;
+const clients = new Map(); // ws -> { name, playerId }
+
+function send(ws, msg) {
+  try { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); } catch { }
+}
+function broadcast(msg, except = null) {
+  const json = JSON.stringify(msg);
+  for (const [ws] of clients) {
+    if (ws === except) continue;
+    try { if (ws.readyState === 1) ws.send(json); } catch { }
+  }
+}
+function humans() { return [...clients.values()]; }
+
+function startLobby(respawnAll) {
+  const seed = (Math.random() * 1e9) | 0;
+  game.start({ name: 'server', mode: 'solo', botCount: 0, dedicated: true, seed });
+  game.lobbyT = Infinity; // released when the countdown finishes
+  state = 'lobby';
+  countdown = -1;
+  if (respawnAll) {
+    // fresh lobby between matches: re-seat everyone still connected
+    for (const c of clients.values()) {
+      const p = game.spawnPlayer(c.name, c.team, true);
+      c.playerId = p.id;
+    }
+  }
+  console.log(`[lobby] new lobby, seed ${seed}, ${clients.size} waiting`);
+}
+
+function beginMatch() {
+  state = 'playing';
+  matchTime = 0;
+  game.lobbyT = 0.01; // updateLobby fires startPlane on next tick
+  broadcast({ t: 'start', seed: game.seed });
+  console.log(`[match] starting with ${humans().length} humans`);
+}
+
+function endMatch() {
+  const alive = game.players.filter((p) => !p.dead);
+  const winner = alive.length === 1 ? alive[0].name : null;
+  state = 'ended';
+  broadcast({ t: 'end', winner });
+  console.log(`[match] over, winner: ${winner || '(draw)'}`);
+  setTimeout(() => {
+    if (clients.size === 0) { state = 'idle'; game.stop(); console.log('[lobby] empty, idling'); return; }
+    startLobby(true);
+  }, 8000);
+}
+
+const wss = new WebSocketServer({ port: PORT });
+console.log(`[server] listening on :${PORT}`);
+
+wss.on('connection', (ws) => {
+  const c = { name: 'Guest', team: 't-h' + (++humanSeq), playerId: null };
+  clients.set(ws, c);
+
+  ws.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.t === 'hello') {
+      c.name = String(msg.name || 'Guest').slice(0, 14) || 'Guest';
+      console.log(`[hello] ${c.name} (state=${state}, players=${game.players.length})`);
+      c.name = String(msg.name || 'Guest').slice(0, 14) || 'Guest';
+      if (clients.size > MAX_HUMANS) {
+        send(ws, { t: 'denied', reason: 'Server is full (6 players).' });
+        ws.close();
+        return;
+      }
+      // one player entity per connection — re-hello just renames
+      const existing = game.players.find((x) => x.id === c.playerId);
+      if (existing) {
+        existing.name = c.name;
+        send(ws, { t: 'welcome' });
+        if (state === 'playing') send(ws, { t: 'start', seed: game.seed });
+        return;
+      }
+      if (state === 'idle') startLobby(false);
+      if (state === 'lobby' || state === 'countdown') {
+        const p = game.spawnPlayer(c.name, c.team, true);
+        c.playerId = p.id;
+        send(ws, { t: 'welcome' });
+        send(ws, { t: 'lobby', humans: humans().length, countdown: state === 'countdown' ? Math.max(0, Math.ceil(countdown)) : 0, started: false });
+        broadcast({ t: 'chat', name: '', text: `${c.name} joined (${humans().length})` });
+      } else if (state === 'playing') {
+        // late join straight into the action
+        const p = game.spawnPlayer(c.name, c.team, false);
+        c.playerId = p.id;
+        send(ws, { t: 'welcome' });
+        send(ws, { t: 'start', seed: game.seed });
+      } else {
+        send(ws, { t: 'welcome' }); // match ending; client waits for next lobby
+      }
+    } else if (msg.t === 'input') {
+      const p = game.players.find((x) => x.id === c.playerId);
+      if (!p || p.dead) return;
+      const input = msg.input || {};
+      p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
+      p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
+      p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
+      if (input.drop && p.dropping) game.tryDrop(p);
+      if (input.use) game.tryInteract(p);
+    } else if (msg.t === 'chat') {
+      const text = String(msg.text || '').slice(0, 60);
+      if (text) broadcast({ t: 'chat', name: c.name, text });
+    }
+  });
+
+  ws.on('close', () => {
+    clients.delete(ws);
+    const i = game.players.findIndex((x) => x.id === c.playerId);
+    if (i >= 0) {
+      const pname = game.players[i].name;
+      game.players.splice(i, 1);
+      broadcast({ t: 'chat', name: '', text: `${pname} left` });
+    }
+    if (state === 'countdown' && humans().length < 2) {
+      state = 'lobby'; countdown = -1; game.lobbyT = Infinity;
+      console.log('[lobby] countdown cancelled, back to waiting');
+    }
+  });
+});
+
+// main loop
+let tick = 0;
+setInterval(() => {
+  tick++;
+  if (state === 'lobby' || state === 'countdown') {
+    const n = humans().length;
+    if (n >= 2 && state === 'lobby') { state = 'countdown'; countdown = START_WAIT; }
+    if (state === 'countdown') {
+      countdown -= TICK / 1000;
+      game.lobbyT = Math.max(0.01, countdown);
+      if (countdown <= 0) beginMatch();
+    }
+    game.update(TICK / 1000); // lobby wander (no-op without players is fine)
+    if (tick % 30 === 0) {
+      broadcast({ t: 'lobby', humans: n, countdown: Math.max(0, Math.ceil(countdown)), started: false });
+    }
+  } else if (state === 'playing') {
+    matchTime += TICK / 1000;
+    game.update(TICK / 1000);
+    if (tick % 6 === 0) broadcast({ t: 'snap', snap: game.snapshot() });
+    if (matchTime > 10) {
+      const alive = game.players.filter((p) => !p.dead);
+      if (alive.length <= 1) endMatch();
+    }
+  }
+}, TICK);

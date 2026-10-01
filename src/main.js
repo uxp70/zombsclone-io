@@ -1,18 +1,17 @@
-import { Game } from './game.js?v=121';
-import { P2PNet } from './net.js?v=121';
-import { WEAPONS } from './config.js?v=121';
-import { sfx } from './audio.js?v=121';
-import { auth } from './auth.js?v=121';
-window.__ZC_BUILD = 'v121';
+import { Game } from './game.js?v=122';
+import { ServerNet } from './servernet.js?v=122';
+import { WEAPONS } from './config.js?v=122';
+import { sfx } from './audio.js?v=122';
+import { auth } from './auth.js?v=122';
+window.__ZC_BUILD = 'v122';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game'), minimap = $('minimap');
 const game = new Game(canvas, minimap);
-const net = new P2PNet();
+const net = new ServerNet();
 
 let mode = 'solo';
-let roomCode = null;
 let isHost = false;
 
 // mode buttons
@@ -182,7 +181,7 @@ $('botsBtn').onclick = () => {
   sfx.ensure(); sfx.ui();
   const me = auth.current();
   const name = (me && me.name) || $('nick').value || 'Prodigy';
-  roomCode = null; isHost = false; lastWasOnline = false;
+  isHost = false; lastWasOnline = false;
   showGameUI();
   game.start({ name, mode, botCount: botCountFor(), net: null, isRemote: false });
   if (me && game.local) game.local.color = me.color;
@@ -208,12 +207,16 @@ function playAgain() {
   setTimeout(() => { $(wasOnline ? 'onlineBtn' : 'botsBtn').click(); }, 60);
 }
 
-// --- ONLINE: automatic public lobbies, no rooms/codes. Humans only, NO bots.
-// First arrival hosts (authoritative sim), rest join as guests.
-// Match starts 30s after 2+ humans are present (waits as long as needed).
-const ONLINE_START_WAIT = 30;
-let onlineTimer = null;
-let onlineCancelled = false;
+// --- ONLINE: dedicated server, no player hosts ---
+// The server (server/server.js) simulates authoritatively; every browser is
+// an equal client. Humans only, no bots. Match starts 30s after 2+ join.
+function serverURL() {
+  try {
+    const saved = localStorage.getItem('zc_server_url');
+    if (saved) return saved;
+  } catch { }
+  return 'ws://localhost:8081';
+}
 
 function onlineStatus(text) {
   $('onlineBox').classList.remove('hidden');
@@ -222,12 +225,11 @@ function onlineStatus(text) {
 function onlineIdle() {
   $('onlineBox').classList.add('hidden');
   $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
-  if (onlineTimer) { clearInterval(onlineTimer); onlineTimer = null; }
 }
 $('cancelOnlineBtn').onclick = () => {
   onlineCancelled = true;
-  if (onlineTimer) { clearInterval(onlineTimer); onlineTimer = null; }
-  net.destroy();
+  if (typeof lobbyBeat !== 'undefined' && lobbyBeat) { clearInterval(lobbyBeat); lobbyBeat = null; }
+  try { net.destroy(); } catch { }
   onlineIdle();
   showMenu();
 };
@@ -237,115 +239,69 @@ function playerName() {
   return (me && me.name) || $('nick').value || 'Prodigy';
 }
 
+let onlineCancelled = false;
+let reconnectTries = 0;
+let lobbyBeat = null;
+
 $('onlineBtn').onclick = async () => {
   sfx.ensure(); sfx.ui();
   onlineCancelled = false;
+  reconnectTries = 0;
   $('botsBtn').disabled = true; $('onlineBtn').disabled = true;
   const name = playerName();
+  const url = ($('srvUrl').value || '').trim() || serverURL();
+  try { localStorage.setItem('zc_server_url', url); } catch { }
+  await joinServer(url, name, false);
+};
+
+if ($('srvUrl')) {
+  try { $('srvUrl').value = localStorage.getItem('zc_server_url') || ''; } catch { }
+  $('srvUrl').placeholder = 'ws://localhost:8081';
+}
+if ($('srvTestBtn')) $('srvTestBtn').onclick = async () => {
+  const msg = $('srvMsg');
+  const url = ($('srvUrl').value || '').trim() || serverURL();
+  msg.classList.remove('bad');
+  msg.textContent = 'Testing…';
+  const t = new ServerNet();
   try {
-    onlineStatus('Searching for a public lobby…');
-    const found = await net.findLobby((s) => { if (!onlineCancelled) onlineStatus(s); });
-    if (onlineCancelled) return;
-    if (found.role === 'host') hostOnlineLobby(name, found.lobby);
-    else guestOnlineLobby(name, found.lobby);
+    await t.connect(url);
+    t.destroy();
+    msg.textContent = '✅ Server reachable!';
   } catch (e) {
-    if (!onlineCancelled) onlineStatus('Failed: ' + e.message);
-    $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
+    msg.classList.add('bad');
+    msg.textContent = '❌ ' + e.message;
   }
 };
 
-function openHumans() {
-  return 1 + net.peerCount;
-}
-
-function hostOnlineLobby(name, lobby) {
-  net.gameInfo = { started: false, seed: 0 };
-  // member joins/leaves are counted silently by the interval below —
-  // feed messages only fire once per player when they actually enter the match
-  net.onMember = () => {};
-  net.onLeave = (peerId) => {
-    const i = game.players.findIndex((x) => x.remotePeer === peerId);
-    if (i >= 0) {
-      const p = game.players[i];
-      game.players.splice(i, 1);
-      if (game.running) game.feed(`<b>${escapeHtml(p.name)}</b> left`);
+async function joinServer(url, name, isRetry) {
+  if (!isRetry) onlineStatus('Connecting to server…');
+  try {
+    await net.connect(url);
+  } catch (e) {
+    if (!onlineCancelled) {
+      onlineStatus('Failed: ' + e.message + ' Run the server (see README) or fix the URL below.');
+      $('botsBtn').disabled = false; $('onlineBtn').disabled = false;
     }
-  };
-  net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
-  wireHostSim(); // listen early so first inputs aren't missed
-  let countdown = -1;
-  onlineStatus(`Hosting lobby ${lobby} — waiting for players… (1 here)`);
-  onlineTimer = setInterval(() => {
-    if (onlineCancelled) { clearInterval(onlineTimer); onlineTimer = null; return; }
-    const humans = openHumans();
-    if (humans >= 2 && countdown < 0) countdown = ONLINE_START_WAIT;
-    if (countdown >= 0) {
-      countdown -= 0.5;
-      onlineStatus(`Starting in ${Math.max(0, Math.ceil(countdown))}… (${humans} players)`);
-      if (countdown <= 0) {
-        clearInterval(onlineTimer); onlineTimer = null;
-        startOnlineMatch(name);
-        return;
-      }
-    } else {
-      onlineStatus(`Waiting for players… (${humans} here) — match starts 30s after 2+ join.`);
-    }
-    net.broadcastLobby({ humans, countdown: Math.max(0, Math.ceil(countdown)), started: false });
-  }, 500);
+    return;
+  }
+  if (onlineCancelled) { net.destroy(); return; }
+  wireServerHandlers(url, name);
+  net.sendHello({ name });
 }
 
-function wireHostSim() {
-  net.onInput = (peerId, input, meta) => {
-    let p = game.players.find((x) => x.remotePeer === peerId);
-    if (!p) {
-      p = game._mkPlayer(meta?.name || ('guest' + peerId.slice(-3)), false, 't-' + peerId);
-      p.remote = true; p.remotePeer = peerId;
-      const L = game.local;
-      p.x = (L ? L.x : 4500) + 60; p.y = (L ? L.y : 4500) + 60;
-      if (game.phase !== 'lobby') {
-        // late join straight into the action
-        p.dropping = false; p.chute = 0;
-        p.x = Math.min(Math.max(p.x, 60), 8940); p.y = Math.min(Math.max(p.y, 60), 8940);
-      } else {
-        game.lobbyPos(p);
-      }
-      game.players.push(p);
-      game.feed(`<b>${escapeHtml(p.name)}</b> joined`);
-    }
-    p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
-    p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
-    p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
-    if (input.drop && p.dropping) game.tryDrop(p);
-    if (input.use) game.tryInteract(p);
-  };
-}
-
-function startOnlineMatch(name) {
-  lastWasOnline = true;
-  const seed = (Math.random() * 1e9) | 0;
-  console.log('[net] starting match with seed ' + seed);
-  net.gameInfo = { started: true, seed };
-  net.broadcastStart(seed);
-  wireHostSim();
-  onlineIdle();
-  showGameUI();
-  // online is humans-only free-for-all: every human on their own team, no bots
-  game.start({ name, mode: 'solo', botCount: 0, net, isRemote: false, teamId: 't-' + name, seed });
-  const me = auth.current();
-  if (me && game.local) game.local.color = me.color;
-}
-
-function guestOnlineLobby(name, lobby) {
-  onlineStatus(`Joined lobby ${lobby} — waiting for players…`);
-  let lastMsg = Date.now();
+function wireServerHandlers(url, name) {
+  if (lobbyBeat) { clearInterval(lobbyBeat); lobbyBeat = null; }
   let started = false;
-  const heartbeat = setInterval(() => {
+  let lastMsg = Date.now();
+  let matchOver = false;
+  const heartbeat = lobbyBeat = setInterval(() => {
     if (started || onlineCancelled) { clearInterval(heartbeat); return; }
     if (Date.now() - lastMsg > 12000) {
       clearInterval(heartbeat);
       onlineIdle(); net.destroy(); showMenu();
       onlineStatus(''); $('onlineBox').classList.remove('hidden');
-      $('onlineStatus').textContent = 'Lost connection to the lobby host. Hit 🌐 PLAY ONLINE to try again.';
+      $('onlineStatus').textContent = 'Lost the server. Check it is running, then try again.';
     }
   }, 1000);
   net.onLobby = (m) => {
@@ -358,63 +314,72 @@ function guestOnlineLobby(name, lobby) {
     clearInterval(heartbeat);
     onlineIdle(); net.destroy(); showMenu();
     onlineStatus(''); $('onlineBox').classList.remove('hidden');
-    $('onlineStatus').textContent = 'Join denied: ' + reason;
+    $('onlineStatus').textContent = 'Server says no: ' + reason;
   };
-  net.onChatMsg = (n, t) => { game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`); };
-  let rejoining = false, reconnecting = false;
-  function bootToMenu(msg) {
-    onlineCancelled = true;
-    onlineIdle();
-    try { net.destroy(); } catch { }
-    showMenu();
-    onlineStatus(''); $('onlineBox').classList.remove('hidden');
-    $('onlineStatus').textContent = msg;
-  }
-  game.onTimeout = null;
-  game.onStall = null;
-  async function guestReconnect() {
-    if (reconnecting || onlineCancelled) return;
-    reconnecting = true;
-    game.centerMsg('Connection stalled — rejoining…', 5);
-    console.log('[net] stalled, attempting rejoin');
-    net.destroy();
-    try {
-      const found = await net.findLobby(() => {});
-      if (onlineCancelled) return;
-      if (found.role !== 'guest') throw new Error('previous lobby is gone');
-      rejoining = true;
-      net.sendHello({ name }); // host answers welcome + start(seed)
-      setTimeout(() => {
-        if (rejoining) {
-          rejoining = false; reconnecting = false;
-          bootToMenu('Could not rejoin the match. Hit 🌐 PLAY ONLINE to re-queue.');
-        }
-      }, 8000);
-    } catch (e) {
-      reconnecting = false;
-      bootToMenu('Lost the host connection mid-match. Hit 🌐 PLAY ONLINE to re-queue.');
+  net.onChatMsg = (n, t) => {
+    if (!n) game.feed(escapeHtml(t));
+    else game.feed(`<b>${escapeHtml(n)}</b>: ${escapeHtml(t)}`);
+  };
+  net.onClose = () => {
+    // unexpected drop mid-match: one auto-retry, then menu
+    if (onlineCancelled) return;
+    if (!game.running || game.isRemote === false && !started) {
+      clearInterval(heartbeat);
+      onlineIdle(); showMenu();
+      onlineStatus(''); $('onlineBox').classList.remove('hidden');
+      $('onlineStatus').textContent = 'Disconnected from server.';
+      return;
     }
-  }
+    if (reconnectTries < 1) {
+      reconnectTries++;
+      game.centerMsg('Disconnected — retrying…', 3);
+      setTimeout(() => { if (!onlineCancelled) joinServer(url, name, true); }, 1500);
+    } else {
+      clearInterval(heartbeat);
+      onlineIdle(); net.destroy(); showMenu();
+      onlineStatus(''); $('onlineBox').classList.remove('hidden');
+      $('onlineStatus').textContent = 'Disconnected from server. Hit 🌐 PLAY ONLINE to re-queue.';
+    }
+  };
+  net.onEnd = (msg) => {
+    const winner = msg && msg.winner;
+    const me = playerName();
+    auth.recordGame({ kills: (game.local && game.local.kills) || 0, win: winner === me });
+    if (winner === me) {
+      sfx.win();
+      $('winSub').textContent = '#1 Victory Royale (online)';
+      $('winBanner').classList.remove('hidden');
+    } else {
+      $('deathTitle').textContent = 'Match over';
+      $('deathSub').textContent = winner ? `Winner: ${winner}` : 'No survivors';
+      $('deathScreen').classList.remove('hidden');
+    }
+  };
   net.onStart = (seed) => {
     if (onlineCancelled) return;
-    if ((started || game.running) && !rejoining) return; // ignore duplicate starts
-    started = true; rejoining = false; reconnecting = false;
+    if (started && game.running) return; // ignore duplicate starts
+    started = true;
+    lastWasOnline = true;
     lastWasOnline = true;
     clearInterval(heartbeat);
-    console.log('[net] match starting from host, seed ' + seed);
+    console.log('[net] match starting, seed ' + seed);
     net.onSnapshot = (snap) => game.applySnapshot(snap);
     onlineIdle();
     showGameUI();
     game.start({ name, mode: 'solo', botCount: 0, net, isRemote: true, seed });
     game.local = { name, x: 4500, y: 4500 };
     game.lastSnapT = performance.now();
-    game.onStall = () => { guestReconnect(); };
+    game.onStall = null;
     game.onTimeout = () => {
-      bootToMenu('Lost the host connection mid-match. Hit 🌐 PLAY ONLINE to re-queue.');
+      try { net.destroy(); } catch { }
+      onlineIdle(); showMenu();
+      onlineStatus(''); $('onlineBox').classList.remove('hidden');
+      $('onlineStatus').textContent = 'Lost the server mid-match. Hit 🌐 PLAY ONLINE to re-queue.';
     };
     net.sendHello({ name });
   };
 }
+
 
 // Custom chat: Enter opens the box, type, Enter sends, Esc cancels
 let chatOpen = false;
@@ -436,8 +401,7 @@ function closeChat(send) {
   $('chatInput').blur();
   if (send && v && inGame()) {
     game.chat(game.local, v);
-    if (net.isHost) net.broadcastChat(game.local.name, v);
-    else if (!net.isHost && net.clientConn) net.sendChat(game.local.name, v);
+    try { net.sendChat(game.local.name, v); } catch { }
   }
 }
 $('chatInput').addEventListener('keydown', (e) => {
@@ -456,21 +420,16 @@ window.addEventListener('keydown', (e) => {
 let lastNsT = 0;
 function updateNetStat(h) {
   const el = $('netStat');
-  const online = net && (net.isHost || net.clientConn);
+  const online = net && net.connected;
   if (!online || $('hud').classList.contains('hidden')) { el.classList.add('hidden'); return; }
   const now = Date.now();
   if (now - lastNsT < 500) return;
   lastNsT = now;
   el.classList.remove('hidden');
-  if (net.isHost) {
-    el.classList.remove('bad');
-    el.textContent = `H • ${net.peerCount} guest${net.peerCount === 1 ? '' : 's'}`;
-  } else {
-    const age = game.lastSnapT ? (performance.now() - game.lastSnapT) / 1000 : 99;
-    const stale = age > 2;
-    el.classList.toggle('bad', stale);
-    el.textContent = stale ? `G • STALE ${age.toFixed(0)}s` : `G • ${age.toFixed(1)}s`;
-  }
+  const age = game.lastSnapT ? (performance.now() - game.lastSnapT) / 1000 : 99;
+  const stale = age > 2;
+  el.classList.toggle('bad', stale);
+  el.textContent = stale ? `🌐 STALE ${age.toFixed(0)}s` : `🌐 ${age.toFixed(1)}s`;
 }
 
 function escapeHtml(s) { return String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }

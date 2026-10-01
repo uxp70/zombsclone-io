@@ -1,6 +1,6 @@
 # ZombsClone.io — open-source ZombsRoyale.io clone
 
-2D top-down battle royale in vanilla JS + Canvas. Solo vs bots offline, **P2P online with friends** (WebRTC via PeerJS cloud — no server to host), bots fill lobby gaps. Deployable to **GitHub Pages** as pure static files.
+2D top-down battle royale in vanilla JS + Canvas. Solo vs bots offline, **online multiplayer on a dedicated server** (authoritative Node sim, no player hosts). Deploy the static client to **GitHub Pages** + run the server anywhere Node runs.
 
 Inspired by [ZombsRoyale.io](https://en.wikipedia.org/wiki/ZombsRoyale.io).
 
@@ -50,9 +50,22 @@ under their username; guests can still play via the nickname field.
 
 GitHub Pages serves **static files only**. A real 100-player authoritative server (Node + WebSockets) can't run there. So:
 
-- `src/net.js` uses PeerJS cloud for NAT-traversed WebRTC: host = authority, guests relay inputs.
+- `src/servernet.js` speaks to the dedicated server over WebSocket: server simulates, every browser is an equal client with interpolated remote players, synced guns + killfeed.
 - **No rooms, no codes, no bots**: press **🌐 PLAY ONLINE** to auto-matchmake into a public lobby (5 slots). First arrival hosts; the match starts 30s after 2+ humans join and waits as long as needed. Small lobbies get a tighter starting zone. Leavers are removed cleanly; stalled guests auto-rejoin once, then exit with a message. A tiny H/G readout under the alive counter shows connection health.
 - Want true massive online? Self-host `server/` (not included — see issues) and point the client at a WebSocket URL. The `Game.snapshot()` / `applySnapshot()` protocol is already decoupled for this.
+
+## Run the server (for online play)
+
+The client is static, but online needs the Node server running somewhere reachable:
+
+```bash
+npm install --prefix server
+npm start --prefix server        # ws://localhost:8081 (or $PORT)
+```
+
+- **Same PC / LAN:** both players press 🌐 PLAY ONLINE with the server field set to `ws://<host-ip>:8081`. Use the **Test** button on the menu to check reachability first.
+- **Internet:** deploy `server/` to Render/Fly/your VPS (`render.yaml` is included for one-click Render deploys), then put the `wss://…` URL in the menu's server field (it remembers it).
+- Protocol is plain JSON (`hello`/`input`/`chat` → `welcome`/`lobby`/`start`/`snap`/`end`/`denied`). Snapshots are trimmed to ~12KB @ 10Hz; clients interpolate between them and show a 🌐 readout (snapshot age, red STALE when starved, auto-retry + re-queue on drops).
 
 ## Run locally
 
@@ -75,7 +88,7 @@ styles.css
 src/config.js   weapons/rarities/bots/gas tuning
 src/world.js    seeded map gen (compounds, scatter, loot)
 src/bots.js     bot FSM AI
-src/net.js      PeerJS P2P rooms
+src/servernet.js  WebSocket client for the dedicated server
 src/game.js     sim + render (plane, gas, combat, minimap)
 src/audio.js    procedural SFX
 src/main.js     menu/HUD/P2P wiring
