@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=128';
-import { ServerNet } from './servernet.js?v=128';
-import { WEAPONS } from './config.js?v=128';
-import { sfx } from './audio.js?v=128';
-import { auth } from './auth.js?v=128';
-window.__ZC_BUILD = 'v128';
+import { Game } from './game.js?v=129';
+import { ServerNet } from './servernet.js?v=129';
+import { WEAPONS } from './config.js?v=129';
+import { sfx } from './audio.js?v=129';
+import { auth } from './auth.js?v=129';
+window.__ZC_BUILD = 'v129';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -314,6 +314,7 @@ function wireServerHandlers(url, name) {
   if (lobbyBeat) { clearInterval(lobbyBeat); lobbyBeat = null; }
   let started = false;
   let lastMsg = Date.now();
+  let noBuild = 0;
   let matchOver = false;
   const heartbeat = lobbyBeat = setInterval(() => {
     if (started || onlineCancelled) { clearInterval(heartbeat); return; }
@@ -326,7 +327,14 @@ function wireServerHandlers(url, name) {
   }, 1000);
   net.onLobby = (m) => {
     lastMsg = Date.now();
-    if (m.build !== undefined && m.build !== EXPECTED_SERVER_BUILD) {
+    if (m.build === undefined) {
+      // pre-handshake server: predates lobby streaming entirely
+      noBuild++;
+      if (noBuild >= 3) {
+        onlineStatus('⚠️ Server is far too old (no lobby streaming) — redeploy it on Render, then rejoin.');
+        return;
+      }
+    } else if (m.build !== EXPECTED_SERVER_BUILD) {
       onlineStatus(`⚠️ Server is outdated (build ${m.build}, need ${EXPECTED_SERVER_BUILD}) — redeploy it on Render, then rejoin.`);
       return;
     }
