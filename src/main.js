@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=123';
-import { ServerNet } from './servernet.js?v=123';
-import { WEAPONS } from './config.js?v=123';
-import { sfx } from './audio.js?v=123';
-import { auth } from './auth.js?v=123';
-window.__ZC_BUILD = 'v123';
+import { Game } from './game.js?v=124';
+import { ServerNet } from './servernet.js?v=124';
+import { WEAPONS } from './config.js?v=124';
+import { sfx } from './audio.js?v=124';
+import { auth } from './auth.js?v=124';
+window.__ZC_BUILD = 'v124';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -215,7 +215,7 @@ function serverURL() {
     const saved = localStorage.getItem('zc_server_url');
     if (saved) return saved;
   } catch { }
-  return 'ws://localhost:8081';
+  return 'wss://zombsclone-server.onrender.com';
 }
 
 function onlineStatus(text) {
