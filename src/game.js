@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=131';
-import { generateWorld } from './world.js?v=131';
-import { makeBotController } from './bots.js?v=131';
-import { sfx } from './audio.js?v=131';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=132';
+import { generateWorld } from './world.js?v=132';
+import { makeBotController } from './bots.js?v=132';
+import { sfx } from './audio.js?v=132';
 
 let PID = 1;
 
@@ -1030,7 +1030,7 @@ export class Game {
       b.traveled = (b.traveled || 0) + Math.hypot(b.vx || 0, b.vy || 0) * dt;
       if (b.traveled > 1400) this.bullets.splice(i, 1);
     }
-    // self prediction + others interpolation (smooth 15Hz snapshots)
+    // you move instantly on your own screen; the server only ever nudges
     const me = this.local && this.players.find((x) => x.name === this.local.name && !x.dead);
     // instant shooting feedback for your own clicks (cosmetic — server owns damage)
     if (me && !me.dead && !me.dropping && me.chute <= 0 && this.mouse.down && !this._shotHeld) {
@@ -1040,11 +1040,17 @@ export class Game {
       this.particles.push({ x: me.x + Math.cos(a) * 30, y: me.y + Math.sin(a) * 30, vx: 0, vy: 0, t: 0.08, max: 0.08, c: '#ffdd55', r: 6 });
     }
     if (!this.mouse.down) this._shotHeld = false;
+    // self movement is CLIENT-AUTHORITATIVE: full local sim every frame,
+    // the server only ever nudges. Everyone else is server-driven (lerped).
     for (const p of this.players) {
       if (p.dead || p.sx === undefined) continue;
-      if (p === me && !p.dropping && p.chute <= 0) {
+      if (p === me && !p.dropping) {
         const n = Math.hypot(mx, my);
-        const sp = p.speed;
+        const slot = p.slots[p.slotI];
+        const wmul = (slot && WEAPONS[slot.gun].moveMul) || 1;
+        let sp = p.speed * (p.chute > 0 ? 0.5 : 1) * wmul * (slot && WEAPONS[slot.gun].len > 36 ? 0.94 : 1);
+        if (this.inPond(p.x, p.y)) sp *= 0.75;
+        // (healing slow isn't synced; the nudge below absorbs it)
         if (n > 0.01) {
           p.vx = lerp(p.vx, (mx / Math.max(1, n)) * sp, Math.min(1, dt * 10));
           p.vy = lerp(p.vy, (my / Math.max(1, n)) * sp, Math.min(1, dt * 10));
@@ -1052,9 +1058,10 @@ export class Game {
         p.x = clamp(p.x + p.vx * dt, 20, WORLD_SIZE - 20);
         p.y = clamp(p.y + p.vy * dt, 20, WORLD_SIZE - 20);
         this.collide(p);
+        // gentle nudge to server truth — too small to ever feel like a yank
         const dx = p.sx - p.x, dy = p.sy - p.y;
-        if (dx * dx + dy * dy > 150 * 150) { p.x = p.sx; p.y = p.sy; }
-        else { const k = Math.min(1, dt * 6); p.x += dx * k; p.y += dy * k; }
+        if (dx * dx + dy * dy > 200 * 200) { p.x = p.sx; p.y = p.sy; }
+        else { const k = Math.min(1, dt * 2.5); p.x += dx * k; p.y += dy * k; }
       } else {
         const dx = p.sx - p.x, dy = p.sy - p.y;
         const k = Math.min(1, dt * 14);
