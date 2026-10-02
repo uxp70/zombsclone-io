@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=133';
-import { ServerNet } from './servernet.js?v=133';
-import { WEAPONS } from './config.js?v=133';
-import { sfx } from './audio.js?v=133';
-import { auth } from './auth.js?v=133';
-window.__ZC_BUILD = 'v133';
+import { Game } from './game.js?v=134';
+import { ServerNet } from './servernet.js?v=134';
+import { WEAPONS } from './config.js?v=134';
+import { sfx } from './audio.js?v=134';
+import { auth } from './auth.js?v=134';
+window.__ZC_BUILD = 'v134';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);

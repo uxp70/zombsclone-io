@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=133';
-import { generateWorld } from './world.js?v=133';
-import { makeBotController } from './bots.js?v=133';
-import { sfx } from './audio.js?v=133';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=134';
+import { generateWorld } from './world.js?v=134';
+import { makeBotController } from './bots.js?v=134';
+import { sfx } from './audio.js?v=134';
 
 let PID = 1;
 
@@ -26,6 +26,7 @@ export class Game {
     this.takenIds = new Set();
     this.bigMap = false;
     this.quality = 0; this.pxScale = 1;
+    this._ri = {}; // one-shot remote intents (reload/heal/slot), sent next frame
     this._bindInput();
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -55,6 +56,16 @@ export class Game {
       if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
       if (!this.local || this.local.dead) return;
       const k = e.key.toLowerCase();
+      if (this.isRemote) {
+        // online: never touch local state — record one-shot intents for the
+        // server instead (E/Space ride the held keys; map toggle is local UI)
+        if (k === 'r') this._ri.reload = true;
+        else if (k === 'q') this._ri.heal = 'bandage';
+        else if (k === 'x') this._ri.heal = 'smart';
+        else if (k >= '1' && k <= '4') this._ri.slot = +k - 1;
+        else if (k === 'm') this.bigMap = !this.bigMap;
+        return;
+      }
       if (k === 'e') this.tryInteract(this.local);
       if (k === 'r') this.startReload(this.local);
       if (k === 'q') this.startHeal(this.local, 'bandage');
@@ -633,6 +644,7 @@ export class Game {
     }
     for (const p of this.players) {
       if (p.dead) continue;
+      if (p.useCd > 0) p.useCd -= dt;
       const n = Math.hypot(p.input.mx, p.input.my);
       if (n > 0.01) {
         p.vx = lerp(p.vx, (p.input.mx / Math.max(1, n)) * p.speed, Math.min(1, dt * 10));
@@ -1031,7 +1043,9 @@ export class Game {
       }
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
-      this.net.sendInput({ mx, my, px: mePos ? mePos.x : undefined, py: mePos ? mePos.y : undefined, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
+      const ri = this._ri || {};
+      this._ri = {};
+      this.net.sendInput({ mx, my, px: mePos ? mePos.x : undefined, py: mePos ? mePos.y : undefined, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'], reload: !!ri.reload, heal: ri.heal || null, slot: ri.slot != null ? ri.slot : null }, { name: this.local.name });
     }
     // stall detection: re-hello once for transient drops, ask for a full
     // rejoin at 6s (repeatable), boot to menu at 20s as a last resort
@@ -1113,6 +1127,23 @@ export class Game {
     if (!this.ponds) return false;
     for (const p of this.ponds) if (dist2(x, y, p.x, p.y) < p.r * p.r) return true;
     return false;
+  }
+
+  // server-side application of one client's input (units + validation inside each op)
+  applyRemoteInput(p, input) {
+    if (!p || p.dead) return;
+    p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
+    p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
+    p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
+    if (input.drop && p.dropping) this.tryDrop(p);
+    if (input.use) this.tryInteract(p);
+    if (input.reload) this.startReload(p);
+    if (input.heal) {
+      this.startHeal(p, input.heal === 'smart'
+        ? (p.shield < 100 && p.heals.shield > 0 ? 'shield' : (p.heals.medkit > 0 ? 'medkit' : 'bandage'))
+        : input.heal);
+    }
+    if (input.slot != null) this.switchSlot(p, input.slot);
   }
 
   // uniform spatial grid — the 9000px map holds 1600+ obstacles

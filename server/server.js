@@ -182,17 +182,13 @@ wss.on('connection', (ws) => {
       const p = game.players.find((x) => x.id === c.playerId);
       if (!p || p.dead) return;
       const input = msg.input || {};
-      p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
-      p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
-      p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
       // client-authoritative position: adopt it (clamped, capped per tick).
       // airborne players stay server-driven (plane/chute).
       if (!p.dropping && typeof input.px === 'number' && typeof input.py === 'number') {
         const nx = clampNum(input.px, 20, 8980), ny = clampNum(input.py, 20, 8980);
         if (Math.abs(nx - p.x) < 60 && Math.abs(ny - p.y) < 60) { p.x = nx; p.y = ny; }
       }
-      if (input.drop && p.dropping) game.tryDrop(p);
-      if (input.use) game.tryInteract(p);
+      game.applyRemoteInput(p, input);
     } else if (msg.t === 'chat') {
       const text = String(msg.text || '').slice(0, 60);
       if (text) broadcast({ t: 'chat', name: c.name, text });
