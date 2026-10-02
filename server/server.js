@@ -60,6 +60,7 @@ function broadcast(msg, except = null) {
   }
 }
 function humans() { return [...clients.values()]; }
+function clampNum(v, a, b) { v = +v; if (!isFinite(v)) return a; return v < a ? a : v > b ? b : v; }
 
 function startLobby(respawnAll) {
   const seed = (Math.random() * 1e9) | 0;
@@ -184,6 +185,12 @@ wss.on('connection', (ws) => {
       p.input.mx = input.mx || 0; p.input.my = input.my || 0; p.input.shoot = !!input.shoot;
       p.aimX = input.ax ?? p.aimX; p.aimY = input.ay ?? p.aimY;
       p.faceAngle = Math.atan2(p.aimY - p.y, p.aimX - p.x);
+      // client-authoritative position: adopt it (clamped, capped per tick).
+      // airborne players stay server-driven (plane/chute).
+      if (!p.dropping && typeof input.px === 'number' && typeof input.py === 'number') {
+        const nx = clampNum(input.px, 20, 8980), ny = clampNum(input.py, 20, 8980);
+        if (Math.abs(nx - p.x) < 60 && Math.abs(ny - p.y) < 60) { p.x = nx; p.y = ny; }
+      }
       if (input.drop && p.dropping) game.tryDrop(p);
       if (input.use) game.tryInteract(p);
     } else if (msg.t === 'chat') {
@@ -228,7 +235,13 @@ setInterval(() => {
   } else if (state === 'playing') {
     matchTime += TICK / 1000;
     game.update(TICK / 1000);
-    if (tick % 4 === 0) broadcast({ t: 'snap', snap: game.snapshot() });
+    // tailored snapshot per client (their own full HUD state included)
+    if (tick % 4 === 0) {
+      for (const [ws, cc] of clients) {
+        if (ws.readyState !== 1) continue;
+        try { ws.send(JSON.stringify({ t: 'snap', snap: game.snapshot(cc.playerId) })); } catch { }
+      }
+    }
     if (matchTime > 10) {
       const alive = game.players.filter((p) => !p.dead);
       if (alive.length <= 1) endMatch();

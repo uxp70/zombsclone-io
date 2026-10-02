@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=132';
-import { generateWorld } from './world.js?v=132';
-import { makeBotController } from './bots.js?v=132';
-import { sfx } from './audio.js?v=132';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=133';
+import { generateWorld } from './world.js?v=133';
+import { makeBotController } from './bots.js?v=133';
+import { sfx } from './audio.js?v=133';
 
 let PID = 1;
 
@@ -278,9 +278,8 @@ export class Game {
     if (this.phase !== 'plane' || !p.dropping || p.dead) return;
     p.dropping = false;
     p.chute = CHUTE_TIME;
-    // steerable descent — scatter the landing
-    p.x = clamp(p.x + rand(-380, 380), 60, WORLD_SIZE - 60);
-    p.y = clamp(p.y + rand(-380, 380), 60, WORLD_SIZE - 60);
+    // land where you are — positioning is the jumper's skill (client-authoritative);
+    // only AFK auto-drops get scattered (see plane update below)
     if (p === this.local) this.centerMsg('Steer with WASD — landing…', 2);
   }
   nearestLoot(p, maxD = 70) {
@@ -897,9 +896,21 @@ export class Game {
     return this.peaceT > 0 ? `🕊️ Grace ${Math.ceil(this.peaceT)} • ${zt}` : zt;
   }
 
-  snapshot() {
+  snapshot(forId = null) {
     // kept small on purpose: oversized DataChannel messages get dropped
-    // (notably ~16KB caps) while tiny ones like 'start' still arrive
+    // (notably ~16KB caps) while tiny ones like 'start' still arrive.
+    // forId tailors the payload for one client: their full state + identity.
+    let me = null;
+    if (forId != null) {
+      const mp = this.players.find((p) => p.id === forId);
+      if (mp) {
+        me = {
+          hp: Math.ceil(mp.hp), shield: Math.ceil(mp.shield), dead: mp.dead,
+          gun: mp.gun, slots: mp.slots, slotI: mp.slotI, ammo: mp.ammo, heals: mp.heals,
+          kills: mp.kills, dropping: mp.dropping, chute: mp.chute > 0,
+        };
+      }
+    }
     return {
       seed: this.seed,
       t: this.time,
@@ -913,6 +924,9 @@ export class Game {
       fresh: this.loot.slice(-8),
       feed: this.killfeed.slice(0, 4),
       lobby: this.lobby,
+      you: forId,
+      me,
+      plane: this.plane ? { x: Math.round(this.plane.x), y: Math.round(this.plane.y), dx: +this.plane.dx.toFixed(3), dy: +this.plane.dy.toFixed(3), active: !!this.plane.active, t: +this.plane.t.toFixed(1) } : null,
     };
   }
 
@@ -960,24 +974,31 @@ export class Game {
         this.onKillfeed && this.onKillfeed(this.killfeed);
       }
     }
-    // upsert players
+    // your own full state for the HUD (hp bar, slots, ammo, heals)
+    this.myState = s.me || null;
+    // upsert players (your own entity is never touched after creation —
+    // your client owns your position, the server adopts it)
     const seen = new Set();
+    const myId = s.you != null ? s.you : this.myId;
+    if (s.you != null) this.myId = s.you;
     for (const sp of s.players) {
       seen.add(sp.id);
       let p = this.players.find((x) => x.id === sp.id);
+      const isMe = myId != null && sp.id === myId;
       if (!p) {
-        p = this._mkPlayer(sp.name, true, sp.team);
+        p = this._mkPlayer(sp.name, !isMe, sp.team);
         p.id = sp.id; PID = Math.max(PID, sp.id + 1);
+        p.remote = !isMe;
+        p.x = sp.x; p.y = sp.y; p.sx = sp.x; p.sy = sp.y;
         this.players.push(p);
+      } else if (!isMe) {
+        if (Math.abs(sp.x - p.x) > 600 || Math.abs(sp.y - p.y) > 600) { p.x = sp.x; p.y = sp.y; }
+        p.sx = sp.x; p.sy = sp.y;
       }
       p.hp = sp.hp; p.shield = sp.shield; p.gun = sp.gun;
       // keep the wielded model in sync so guns render on remote players
       p.slots = [{ gun: sp.gun, rarity: sp.rarity || 0, magAmmo: 99 }];
       p.slotI = 0;
-      // network targets — updateRemote predicts self, lerps others (smooth 15Hz)
-      if (p.sx === undefined || Math.abs(sp.x - p.sx) > 600 || Math.abs(sp.y - p.sy) > 600) {
-        p.x = sp.x; p.y = sp.y; p.sx = sp.x; p.sy = sp.y;
-      } else { p.sx = sp.x; p.sy = sp.y; }
       p.faceAngle = sp.face; p.dead = sp.dead; p.dropping = sp.dropping; p.chute = sp.chute ? 1 : 0; p.kills = sp.kills;
     }
     // prune players who left (remote snapshots are the full roster)
@@ -985,16 +1006,22 @@ export class Game {
       if (!seen.has(this.players[i].id)) this.players.splice(i, 1);
     }
     this.bullets = (s.bullets || []).map((b) => ({ ...b, dmg: 0, range: 300, traveled: 0, from: -1 }));
-    // camera on local-by-name
-    if (this.local) {
-      const me = this.players.find((x) => x.name === this.local.name && !x.dead);
+    // camera on your own entity by id (names can collide)
+    if (this.local && this.myId != null) {
+      const me = this.players.find((x) => x.id === this.myId && !x.dead);
       if (me) { this.cam.x = me.x - this.cv.width / this.cam.zoom / 2; this.cam.y = me.y - this.cv.height / this.cam.zoom / 2; }
     }
   }
 
   updateRemote(dt) {
-    // client: send input + predict own movement (server reconciles gently)
+    // client: your movement is YOURS — send pos too so the server adopts it.
+    // (Airborne players stay server-driven; see below.)
     let mx = 0, my = 0;
+    let mePos = null;
+    if (this.local) {
+      const pre = this.myId != null && this.players.find((x) => x.id === this.myId);
+      if (pre && !pre.dead) mePos = { x: Math.round(pre.x), y: Math.round(pre.y) };
+    }
     if (this.local && this.net) {
       if (this.keys['w']) my -= 1; if (this.keys['s']) my += 1;
       if (this.keys['a']) mx -= 1; if (this.keys['d']) mx += 1;
@@ -1004,7 +1031,7 @@ export class Game {
       }
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
-      this.net.sendInput({ mx, my, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
+      this.net.sendInput({ mx, my, px: mePos ? mePos.x : undefined, py: mePos ? mePos.y : undefined, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'] }, { name: this.local.name });
     }
     // stall detection: re-hello once for transient drops, ask for a full
     // rejoin at 6s (repeatable), boot to menu at 20s as a last resort
@@ -1030,8 +1057,9 @@ export class Game {
       b.traveled = (b.traveled || 0) + Math.hypot(b.vx || 0, b.vy || 0) * dt;
       if (b.traveled > 1400) this.bullets.splice(i, 1);
     }
-    // you move instantly on your own screen; the server only ever nudges
-    const me = this.local && this.players.find((x) => x.name === this.local.name && !x.dead);
+    // you move instantly on your own screen; the server adopts your pos.
+    // airborne = server-driven (plane/chute), everyone else is lerped.
+    const me = this.local && this.myId != null && this.players.find((x) => x.id === this.myId && !x.dead);
     // instant shooting feedback for your own clicks (cosmetic — server owns damage)
     if (me && !me.dead && !me.dropping && me.chute <= 0 && this.mouse.down && !this._shotHeld) {
       this._shotHeld = true;
@@ -1058,10 +1086,7 @@ export class Game {
         p.x = clamp(p.x + p.vx * dt, 20, WORLD_SIZE - 20);
         p.y = clamp(p.y + p.vy * dt, 20, WORLD_SIZE - 20);
         this.collide(p);
-        // gentle nudge to server truth — too small to ever feel like a yank
-        const dx = p.sx - p.x, dy = p.sy - p.y;
-        if (dx * dx + dy * dy > 200 * 200) { p.x = p.sx; p.y = p.sy; }
-        else { const k = Math.min(1, dt * 2.5); p.x += dx * k; p.y += dy * k; }
+        // no server correction here — your client owns your position
       } else {
         const dx = p.sx - p.x, dy = p.sy - p.y;
         const k = Math.min(1, dt * 14);
@@ -1072,7 +1097,15 @@ export class Game {
       const alive = this.players.filter((p) => !p.dead).length;
       let zone = (this.remoteSnap && this.remoteSnap.phaseStr) || 'Online';
       if (!this.remoteSnap || performance.now() - (this.lastSnapT || 0) > 3000) zone = '🛰️ Waiting for host…';
-      this.onHud({ hp: 100, shield: 0, slots: [], slotI: 0, alive, kills: 0, zone, remote: true });
+      const ms = this.myState;
+      const cur = ms && ms.slots[ms.slotI];
+      this.onHud({
+        hp: ms ? ms.hp : 100, shield: ms ? ms.shield : 0,
+        ammo: cur, reserve: ms ? ms.ammo : {}, heals: ms ? ms.heals : { bandage: 0, medkit: 0, shield: 0 },
+        slots: ms ? ms.slots : [], slotI: ms ? ms.slotI : 0,
+        alive, kills: ms ? ms.kills : 0, zone, remote: true, meDead: !!(ms && ms.dead),
+        reloading: false, healing: null, dropping: !!(ms && (ms.dropping || ms.chute)), interact: null,
+      });
     }
   }
 

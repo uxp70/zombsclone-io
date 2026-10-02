@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=132';
-import { ServerNet } from './servernet.js?v=132';
-import { WEAPONS } from './config.js?v=132';
-import { sfx } from './audio.js?v=132';
-import { auth } from './auth.js?v=132';
-window.__ZC_BUILD = 'v132';
+import { Game } from './game.js?v=133';
+import { ServerNet } from './servernet.js?v=133';
+import { WEAPONS } from './config.js?v=133';
+import { sfx } from './audio.js?v=133';
+import { auth } from './auth.js?v=133';
+window.__ZC_BUILD = 'v133';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -100,6 +100,45 @@ game.onHud = (h) => {
   if (h.remote) {
     $('aliveCount').textContent = h.alive;
     $('zoneTimer').textContent = h.zone;
+    $('hpfill').style.width = Math.max(0, h.hp) + '%';
+    $('shieldfill').style.width = Math.max(0, h.shield) + '%';
+    $('killCount').textContent = `${h.kills} Kills`;
+    // slots (rendered gun models, like offline)
+    const slots = $('slots');
+    if (slots.children.length !== 4) {
+      slots.innerHTML = '';
+      for (let i = 0; i < 4; i++) {
+        const d = document.createElement('div');
+        d.className = 'slot'; d.innerHTML = `<div class="wicon">—</div><div class="wname"></div>`;
+        slots.appendChild(d);
+      }
+    }
+    [...slots.children].forEach((el, i) => {
+      const s = h.slots[i];
+      el.classList.toggle('active', i === h.slotI);
+      const iconEl = el.querySelector('.wicon');
+      if (s && s.gun !== 'fists') {
+        const k = s.gun + ':' + (s.rarity || 0);
+        if (iconEl.dataset.k !== k) {
+          const url = game.gunIcon(s.gun, s.rarity || 0);
+          iconEl.innerHTML = url ? `<img src="${url}" alt="${s.gun}" />` : WEAPONS[s.gun].icon;
+          iconEl.dataset.k = k;
+        }
+      } else if (iconEl.dataset.k !== 'txt') { iconEl.textContent = s ? WEAPONS[s.gun].icon : '—'; iconEl.dataset.k = 'txt'; }
+      const wname = s ? `${WEAPONS[s.gun].name}${s.magAmmo === Infinity ? '' : ` ${s.magAmmo}`}` : '';
+      el.querySelector('.wname').textContent = wname;
+      el.style.borderColor = s ? ['#b8b8b8', '#5dff5d', '#4aa8ff', '#c26bff', '#ffd23f'][s.rarity || 0] : '';
+    });
+    const cur = h.ammo;
+    $('ammoCount').textContent = !cur ? '—' : (cur.magAmmo === Infinity ? '∞' : `${cur.magAmmo} / ${h.reserve[WEAPONS[cur.gun].ammo] || 0}`) + (h.reloading ? ' ⟳' : '') + (h.healing ? ` +${h.healing.type}` : '');
+    $('healRow').innerHTML = `🩹 ${h.heals.bandage} &nbsp; 💊 ${h.heals.medkit} &nbsp; 🛡️ ${h.heals.shield}`;
+    $('pname').textContent = game.local ? game.local.name : '';
+    if (h.meDead && $('deathScreen').classList.contains('hidden') && $('menu').classList.contains('hidden')) {
+      auth.recordGame({ kills: h.kills, win: false });
+      $('deathTitle').textContent = 'Eliminated';
+      $('deathSub').textContent = `Online • ${h.alive} left • ${h.kills} kills`;
+      $('deathScreen').classList.remove('hidden');
+    }
     return;
   }
   $('aliveCount').textContent = h.alive;
