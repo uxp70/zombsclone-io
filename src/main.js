@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=135';
-import { ServerNet } from './servernet.js?v=135';
-import { WEAPONS } from './config.js?v=135';
-import { sfx } from './audio.js?v=135';
-import { auth } from './auth.js?v=135';
-window.__ZC_BUILD = 'v135';
+import { Game } from './game.js?v=136';
+import { ServerNet } from './servernet.js?v=136';
+import { WEAPONS } from './config.js?v=136';
+import { sfx } from './audio.js?v=136';
+import { auth } from './auth.js?v=136';
+window.__ZC_BUILD = 'v136';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -291,7 +291,7 @@ let reconnectTries = 0;
 let lobbyBeat = null;
 let rejoiningRemote = false;
 // must match server/server.js SERVER_BUILD or the menu warns
-const EXPECTED_SERVER_BUILD = 2;
+const EXPECTED_SERVER_BUILD = 3;
 
 $('onlineBtn').onclick = async () => {
   sfx.ensure(); sfx.ui();
@@ -523,7 +523,8 @@ function updateNetStat(h) {
   const age = game.lastSnapT ? (performance.now() - game.lastSnapT) / 1000 : 99;
   const stale = age > 2;
   el.classList.toggle('bad', stale);
-  el.textContent = stale ? `🌐 STALE ${age.toFixed(0)}s` : `🌐 ${age.toFixed(1)}s`;
+  const build = game.lastBuild != null ? ` • srv${game.lastBuild}` : '';
+  el.textContent = stale ? `🌐 STALE ${age.toFixed(0)}s${build}` : `🌐 ${age.toFixed(1)}s${build}`;
 }
 
 function escapeHtml(s) { return String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }

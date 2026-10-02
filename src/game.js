@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=135';
-import { generateWorld } from './world.js?v=135';
-import { makeBotController } from './bots.js?v=135';
-import { sfx } from './audio.js?v=135';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=136';
+import { generateWorld } from './world.js?v=136';
+import { makeBotController } from './bots.js?v=136';
+import { sfx } from './audio.js?v=136';
 
 let PID = 1;
 
@@ -938,6 +938,7 @@ export class Game {
       lobby: this.lobby,
       you: forId,
       me,
+      build: this.serverBuild || undefined,
       plane: this.plane ? { x: Math.round(this.plane.x), y: Math.round(this.plane.y), dx: +this.plane.dx.toFixed(3), dy: +this.plane.dy.toFixed(3), active: !!this.plane.active, t: +this.plane.t.toFixed(1) } : null,
     };
   }
@@ -988,6 +989,7 @@ export class Game {
     }
     // your own full state for the HUD (hp bar, slots, ammo, heals)
     this.myState = s.me || null;
+    if (s.build != null) this.lastBuild = s.build;
     // upsert players (your own entity is never touched after creation —
     // your client owns your position, the server adopts it)
     const seen = new Set();
@@ -1012,6 +1014,8 @@ export class Game {
       p.slots = [{ gun: sp.gun, rarity: sp.rarity || 0, magAmmo: 99 }];
       p.slotI = 0;
       p.faceAngle = sp.face; p.dead = sp.dead; p.dropping = sp.dropping; p.chute = sp.chute ? 1 : 0; p.kills = sp.kills;
+      // rendering aims from aimX/aimY — derive them so remote players face correctly
+      p.aimX = p.x + Math.cos(sp.face) * 120; p.aimY = p.y + Math.sin(sp.face) * 120;
     }
     // prune players who left (remote snapshots are the full roster)
     for (let i = this.players.length - 1; i >= 0; i--) {
@@ -1043,6 +1047,11 @@ export class Game {
       }
       const wx = this.cam.x + this.mouse.x / this.cam.zoom;
       const wy = this.cam.y + this.mouse.y / this.cam.zoom;
+      // your own aim is instant (server sees the same coords a round-trip later)
+      if (mePos) {
+        const meAim = this.players.find((x) => x.id === this.myId);
+        if (meAim && !meAim.dead) { meAim.aimX = wx; meAim.aimY = wy; }
+      }
       const ri = this._ri || {};
       this._ri = {};
       this.net.sendInput({ mx, my, px: mePos ? mePos.x : undefined, py: mePos ? mePos.y : undefined, shoot: this.mouse.down, ax: wx | 0, ay: wy | 0, drop: !!(this.keys['f'] || this.keys[' ']), use: !!this.keys['e'], reload: !!ri.reload, heal: ri.heal || null, slot: ri.slot != null ? ri.slot : null }, { name: this.local.name });
