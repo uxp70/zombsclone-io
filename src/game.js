@@ -1,7 +1,7 @@
-import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=134';
-import { generateWorld } from './world.js?v=134';
-import { makeBotController } from './bots.js?v=134';
-import { sfx } from './audio.js?v=134';
+import { WORLD_SIZE, WEAPONS, RARITIES, GAS_PHASES, BOT_NAMES, LOBBY_TIME, GRACE_TIME, CHUTE_TIME, CHEST_POOL_BASIC, CHEST_POOL_GOLDEN, rand, randi, pick, clamp, dist2, angleLerp } from './config.js?v=135';
+import { generateWorld } from './world.js?v=135';
+import { makeBotController } from './bots.js?v=135';
+import { sfx } from './audio.js?v=135';
 
 let PID = 1;
 
@@ -892,7 +892,7 @@ export class Game {
         hp: L.hp, shield: L.shield, ammo: L.slots[L.slotI], reserve: L.ammo,
         heals: L.heals, slots: L.slots, slotI: L.slotI, alive, kills: L.kills,
         zone: this.zoneText(), dropping: L.dropping || L.chute > 0, reloading: L.reloadT > 0, healing: L.healing,
-        interact: this.interactTarget(L),
+        interact: this.interactTarget(this.viewPlayer()),
       });
     }
     if (this.net && this.net.isHost && this.snapT <= 0) {
@@ -1234,6 +1234,16 @@ export class Game {
     const l = this.nearestLoot(p, 80);
     if (l) return this.tryPickup(p, l);
     return false;
+  }
+
+  // the player you SEE: your live entity online (stub never moves),
+  // plain local player offline
+  viewPlayer() {
+    if (this.local && this.myId != null) {
+      const me = this.players.find((x) => x.id === this.myId);
+      if (me) return me;
+    }
+    return this.local;
   }
 
   interactTarget(p) {

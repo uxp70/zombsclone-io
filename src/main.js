@@ -1,9 +1,9 @@
-import { Game } from './game.js?v=134';
-import { ServerNet } from './servernet.js?v=134';
-import { WEAPONS } from './config.js?v=134';
-import { sfx } from './audio.js?v=134';
-import { auth } from './auth.js?v=134';
-window.__ZC_BUILD = 'v134';
+import { Game } from './game.js?v=135';
+import { ServerNet } from './servernet.js?v=135';
+import { WEAPONS } from './config.js?v=135';
+import { sfx } from './audio.js?v=135';
+import { auth } from './auth.js?v=135';
+window.__ZC_BUILD = 'v135';
 console.log('%cZombsClone ' + window.__ZC_BUILD, 'font-weight:bold');
 
 const $ = (id) => document.getElementById(id);
@@ -415,7 +415,8 @@ function wireServerHandlers(url, name) {
   net.onEnd = (msg) => {
     const winner = msg && msg.winner;
     const me = playerName();
-    auth.recordGame({ kills: (game.local && game.local.kills) || 0, win: winner === me });
+    const myKills = (game.myState && game.myState.kills) || 0;
+    auth.recordGame({ kills: myKills, win: winner === me });
     if (winner === me) {
       sfx.win();
       $('winSub').textContent = '#1 Victory Royale (online)';
@@ -491,7 +492,9 @@ function closeChat(send) {
   $('chatBox').classList.add('hidden');
   $('chatInput').blur();
   if (send && v && inGame()) {
-    game.chat(game.local, v);
+    // chat as your live entity so the bubble renders above you
+    const ent = (game.myId != null && game.players.find((x) => x.id === game.myId)) || game.local;
+    game.chat(ent, v);
     try { net.sendChat(game.local.name, v); } catch { }
   }
 }
