@@ -291,7 +291,7 @@ let reconnectTries = 0;
 let lobbyBeat = null;
 let rejoiningRemote = false;
 // must match server/server.js SERVER_BUILD or the menu warns
-const EXPECTED_SERVER_BUILD = 1;
+const EXPECTED_SERVER_BUILD = 2;
 
 $('onlineBtn').onclick = async () => {
   sfx.ensure(); sfx.ui();

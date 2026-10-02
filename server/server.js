@@ -36,7 +36,7 @@ const PORT = +(process.env.PORT || 8081);
 const MAX_HUMANS = 6;
 const START_WAIT = +(process.env.START_WAIT || 30);
 // bump when the protocol/world changes so clients can warn on stale servers
-const SERVER_BUILD = 1;
+const SERVER_BUILD = 2;
 const TICK = 1000 / 60;
 
 const game = new Game(makeCanvas(), makeCanvas());
